@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<title>sekimori 最小チャット</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+  h1 { font-size: 1.1rem; }
+  label { display: block; margin-top: 0.75rem; font-size: 0.85rem; color: #444; }
+  input, textarea { width: 100%; box-sizing: border-box; padding: 0.5rem; font-size: 0.95rem; border: 1px solid #ccc; border-radius: 6px; }
+  textarea { min-height: 4rem; resize: vertical; }
+  button { margin-top: 0.75rem; padding: 0.5rem 1.25rem; font-size: 0.95rem; border: none; border-radius: 6px; background: #2563eb; color: white; cursor: pointer; }
+  button:disabled { background: #93a5c9; cursor: default; }
+  #log { margin-top: 1.5rem; white-space: pre-wrap; border: 1px solid #ddd; border-radius: 6px; padding: 0.75rem; min-height: 6rem; background: #fafafa; }
+  .error { color: #b00020; }
+  .hint { color: #666; font-size: 0.8rem; }
+</style>
+</head>
+<body>
+  <h1>sekimori 最小チャット(examples/chat.html)</h1>
+  <p class="hint">
+    sekimori 経由で招待トークンを使って POST /v1/messages(stream: true)を叩くだけの、依存ゼロの
+    デモページです。CORS の都合上、file:// で直接開くのではなく簡易 HTTP サーバーで配信してください
+    (例: <code>python3 -m http.server 8000</code> をこのディレクトリで実行し、sekimori 側の
+    <code>cors.allowedOrigins</code> に <code>http://localhost:8000</code> を追加する)。
+  </p>
+
+  <label>sekimori のベース URL</label>
+  <input id="baseUrl" value="http://localhost:8787" />
+
+  <label>招待トークン(smk_...)</label>
+  <input id="token" placeholder="smk_..." />
+
+  <label>モデル</label>
+  <input id="model" value="claude-haiku-4-5-20251001" />
+
+  <label>メッセージ</label>
+  <textarea id="message">こんにちは。自己紹介してください。</textarea>
+
+  <button id="send">送信(ストリーミング)</button>
+
+  <div id="log"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const logEl = $("log");
+
+function appendLog(text) {
+  logEl.textContent += text;
+}
+
+function appendError(text) {
+  const span = document.createElement("div");
+  span.className = "error";
+  span.textContent = text;
+  logEl.appendChild(span);
+}
+
+$("send").addEventListener("click", async () => {
+  const baseUrl = $("baseUrl").value.replace(/\/$/, "");
+  const token = $("token").value.trim();
+  const model = $("model").value.trim();
+  const message = $("message").value;
+  const sendBtn = $("send");
+
+  if (!token) {
+    alert("招待トークンを入力してください(sekimori の管理者に発行してもらうか、curl で発行してください)");
+    return;
+  }
+
+  logEl.textContent = "";
+  sendBtn.disabled = true;
+
+  try {
+    const res = await fetch(`${baseUrl}/v1/messages`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 512,
+        stream: true,
+        messages: [{ role: "user", content: message }],
+      }),
+    });
+
+    if (!res.ok || !res.body) {
+      const bodyText = await res.text();
+      appendError(`エラー: HTTP ${res.status} ${bodyText}`);
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let newlineIndex;
+      while ((newlineIndex = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, newlineIndex).trim();
+        buffer = buffer.slice(newlineIndex + 1);
+        if (!line.startsWith("data:")) continue;
+        const jsonStr = line.slice("data:".length).trim();
+        if (!jsonStr) continue;
+        try {
+          const evt = JSON.parse(jsonStr);
+          if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta") {
+            appendLog(evt.delta.text);
+          }
+        } catch {
+          // 無視: パースできない行はそのままスキップ
+        }
+      }
+    }
+  } catch (err) {
+    appendError(`通信エラー: ${err instanceof Error ? err.message : String(err)}`);
+  } finally {
+    sendBtn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

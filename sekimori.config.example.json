@@ -1,0 +1,19 @@
+{
+  "port": 8787,
+  "upstream": {
+    "baseUrl": "https://api.anthropic.com",
+    "apiKeyEnv": "ANTHROPIC_API_KEY"
+  },
+  "models": {
+    "claude-haiku-4-5-20251001": { "inputPerMTok": 1.0, "outputPerMTok": 5.0 }
+  },
+  "budget": {
+    "monthlyUsd": 30,
+    "defaultDailyPerTokenUsd": 0.5
+  },
+  "rateLimit": { "requestsPerMinute": 10 },
+  "pinnedSystemPrompt": null,
+  "cors": { "allowedOrigins": [] },
+  "logging": { "logBodies": false },
+  "store": { "type": "file", "path": ".sekimori/state.json" }
+}

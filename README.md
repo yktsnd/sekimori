@@ -4,6 +4,8 @@
 
 「週末に作った AI プロトタイプを、友人・SNS・β ユーザーに触らせたい」段階の個人開発者向け。設定ファイル 1 枚 + プロセス 1 個で、キー秘匿・予算上限・招待トークン認証・レート制限・system プロンプト固定・SSE 素通しを提供する。背景は [docs/00-background.md](docs/00-background.md)、コンセプトは [docs/01-concept.md](docs/01-concept.md)、実装契約は [docs/02-mvp-spec.md](docs/02-mvp-spec.md)、DX レビューは [docs/03-dx-review.md](docs/03-dx-review.md)、デモ設計は [docs/04-demo-design.md](docs/04-demo-design.md) を参照。
 
+> このリポジトリは、別プロジェクト([manabi-repeat](https://github.com/yktsnd/manabi-repeat) の PoC 収束)から派生した設計・実装の初期検討を、独立リポジトリとして切り出したもの。`docs/` 配下には切り出し前の設計判断の記録(コミット履歴込み)がそのまま残っている。
+
 **単一プロセス前提**: sekimori は水平スケールに対応していない。レート制限・トークンストア(memory 時)はプロセス内メモリで完結する設計であり、複数インスタンスを同時に立てて共有することはできない。個人が身内に公開する規模(数十〜数千リクエスト/日程度)を想定している。
 
 ### ドキュメント一覧(読む順序)
@@ -23,7 +25,6 @@
 sekimori が守っている 6 つの瞬間(トークンなし侵入の遮断・予算超過・レート制限・許可外モデル拒否・トークン失効・その間も正当な利用者は普通に使える)を、実 API キーなし・課金ゼロで 1 コマンドのまま通しで見られる。
 
 ```bash
-cd projects/sekimori
 npm install        # 初回のみ
 bash examples/demo.sh
 ```
@@ -35,7 +36,6 @@ bash examples/demo.sh
 `demo.sh` は自動シナリオだが、ここでは自分の手で `curl` を叩きながら一つずつ確認できる。実 API キーなしで、依存ゼロの擬似 Anthropic サーバーに向けて一通り動かせる。
 
 ```bash
-cd projects/sekimori
 npm install
 
 # 1. 擬似上流(Anthropic Messages API のスタブ)を :9999 で起動
@@ -101,7 +101,6 @@ python3 -m http.server 8000 --directory examples
 ## テスト・型チェック
 
 ```bash
-cd projects/sekimori
 npm test          # node:test。オフラインのモック上流を内包しており実 API キー不要
 npm run typecheck # npx tsc --noEmit
 ```
@@ -214,4 +213,4 @@ curl http://localhost:8787/admin/usage -H "Authorization: Bearer $SEKIMORI_ADMIN
 
 - 2026-07: MVP 実装完了(`npm test` / `npx tsc --noEmit` グリーン)
 - 2026-07: DX レビュー([03-dx-review.md](docs/03-dx-review.md))の「今すぐ直す」7 件に対応(起動サマリ・config 不在時の案内・`Retry-After`・非許可 Origin 警告・`chat.html` のリファレンスクライアント化・`examples/demo.sh`)。`npm test` / `npx tsc --noEmit` グリーン、`bash examples/demo.sh` オフライン完走を確認
-- 名称 `sekimori` は仮。公開前に npm / GitHub / 商標の正式チェックを行う
+- 2026-07: 独立リポジトリ `yktsnd/sekimori` として切り出し(コミット履歴込み)。公開前必須項目(npm 配布・英語一次言語化・CONTRIBUTING・CI・デプロイガイド・商標チェック)は `docs/03-dx-review.md` の該当節を参照

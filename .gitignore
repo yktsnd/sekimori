@@ -1,0 +1,10 @@
+# OS / editor
+.DS_Store
+*.swp
+
+# Node
+node_modules/
+
+# runtime config / state (contains no secrets by design, but is local-only)
+sekimori.config.json
+.sekimori/

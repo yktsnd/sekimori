@@ -5,7 +5,7 @@
 # 「期待 HTTP ステータスの不一致で非ゼロ終了する」スモークテストでもある(DX レビュー B-3)。
 #
 # 使い方:
-#   cd projects/sekimori && npm install   # 初回のみ
+#   npm install   # 初回のみ
 #   bash examples/demo.sh
 #
 # 実 API モード(おまけ。既定はオフライン):
@@ -166,7 +166,7 @@ EOF
 note "sekimori を起動します(月次上限 \$$MONTHLY_USD、レート制限 5 req/min、モデル 1 つ)"
 TSX_BIN="$SEKIMORI_DIR/node_modules/.bin/tsx"
 if [ ! -x "$TSX_BIN" ]; then
-  echo "tsx が見つかりません。先に 'cd projects/sekimori && npm install' を実行してください。" >&2
+  echo "tsx が見つかりません。先に 'npm install' を実行してください。" >&2
   exit 1
 fi
 SEKIMORI_ADMIN_KEY="$ADMIN_KEY" "$TSX_BIN" "$SEKIMORI_DIR/src/main.ts" "$CONFIG_PATH" >"$SEKIMORI_LOG" 2>&1 &

@@ -12,7 +12,7 @@
 
 | # | 文書 | ステータス |
 |---|---|---|
-| 00 | [背景](docs/00-background.md) | 確定(manabi-repeat 収束の経緯) |
+| 00 | [背景](docs/00-background.md) | 確定 |
 | 01 | [コンセプト](docs/01-concept.md) | 確定(随時ロードマップのみ更新) |
 | 02 | [MVP 仕様(実装契約)](docs/02-mvp-spec.md) | **凍結済みの歴史文書**(以後の変更は未反映。現状は本 README を参照) |
 | 03 | [DX レビュー](docs/03-dx-review.md) | 確定(「今すぐ直す」項目は本 README に反映済み。「公開前必須」は未着手) |

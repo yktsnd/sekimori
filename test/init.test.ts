@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { runInit, parseInitArgs, type InitIO } from "../src/init.js";
+import { runInit, parseInitArgs, parseModelSpec, INIT_HELP_TEXT, type InitIO } from "../src/init.js";
 import { validateConfig } from "../src/config.js";
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -61,17 +61,163 @@ function resetRealEnv(): void {
 
 test("init: parseInitArgs defaults path, force, yes", () => {
   const parsed = parseInitArgs([]);
-  assert.deepEqual(parsed, { path: "./sekimori.config.json", force: false, yes: false });
+  assert.deepEqual(parsed, { path: "./sekimori.config.json", force: false, yes: false, overrides: {} });
 });
 
 test("init: parseInitArgs reads a positional path and flags in any order", () => {
   const parsed = parseInitArgs(["--force", "custom.config.json", "--yes"]);
-  assert.deepEqual(parsed, { path: "custom.config.json", force: true, yes: true });
+  assert.deepEqual(parsed, { path: "custom.config.json", force: true, yes: true, overrides: {} });
 });
 
 test("init: parseInitArgs rejects unknown flags", () => {
   const parsed = parseInitArgs(["--bogus"]);
   assert.ok("error" in parsed);
+});
+
+// ---------------------------------------------------------------------------
+// parseModelSpec
+// ---------------------------------------------------------------------------
+
+test("init: parseModelSpec parses name=input,output", () => {
+  const parsed = parseModelSpec("claude-haiku-4-5-20251001=1,5");
+  assert.deepEqual(parsed, {
+    name: "claude-haiku-4-5-20251001",
+    pricing: { inputPerMTok: 1, outputPerMTok: 5 },
+  });
+});
+
+test("init: parseModelSpec accepts decimal prices and trims whitespace", () => {
+  const parsed = parseModelSpec("my-model = 0.25 , 1.5 ");
+  assert.deepEqual(parsed, { name: "my-model", pricing: { inputPerMTok: 0.25, outputPerMTok: 1.5 } });
+});
+
+for (const bad of [
+  "no-equals-sign",
+  "=1,5", // empty name
+  "name=1", // missing output price
+  "name=1,2,3", // too many parts
+  "name=abc,5", // non-numeric input price
+  "name=1,-5", // non-positive output price
+  "name=0,5", // zero input price
+]) {
+  test(`init: parseModelSpec rejects "${bad}"`, () => {
+    const parsed = parseModelSpec(bad);
+    assert.ok("error" in parsed, `expected an error for "${bad}"`);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// parseInitArgs: per-setting flags (issue #13)
+// ---------------------------------------------------------------------------
+
+test("init: parseInitArgs --help short-circuits regardless of position or other errors", () => {
+  assert.deepEqual(parseInitArgs(["--help"]), { help: true });
+  assert.deepEqual(parseInitArgs(["-h"]), { help: true });
+  assert.deepEqual(parseInitArgs(["--bogus", "--help"]), { help: true });
+  assert.deepEqual(parseInitArgs(["--port", "not-a-number", "--help"]), { help: true });
+});
+
+test("init: parseInitArgs parses every per-setting flag", () => {
+  const parsed = parseInitArgs([
+    "--yes",
+    "--port",
+    "3000",
+    "--upstream-url",
+    "https://upstream.example.com",
+    "--model",
+    "claude-haiku-4-5-20251001=1,5",
+    "--monthly-usd",
+    "10",
+    "--daily-usd",
+    "2",
+    "--rate-limit",
+    "42",
+    "--store",
+    "memory",
+    "--cors-origin",
+    "https://example.com",
+    "--pinned-system",
+    "You are a pirate.",
+  ]);
+  assert.ok(!("error" in parsed) && !("help" in parsed));
+  if ("error" in parsed || "help" in parsed) return;
+  assert.deepEqual(parsed.overrides, {
+    port: 3000,
+    upstreamUrl: "https://upstream.example.com",
+    models: { "claude-haiku-4-5-20251001": { inputPerMTok: 1, outputPerMTok: 5 } },
+    monthlyUsd: 10,
+    dailyUsd: 2,
+    rateLimit: 42,
+    storeType: "memory",
+    corsOrigins: ["https://example.com"],
+    pinnedSystem: "You are a pirate.",
+  });
+});
+
+test("init: parseInitArgs --model is repeatable and later duplicates win", () => {
+  const parsed = parseInitArgs(["--model", "a=1,2", "--model", "b=3,4", "--model", "a=9,9"]);
+  assert.ok(!("error" in parsed) && !("help" in parsed));
+  if ("error" in parsed || "help" in parsed) return;
+  assert.deepEqual(parsed.overrides.models, {
+    a: { inputPerMTok: 9, outputPerMTok: 9 },
+    b: { inputPerMTok: 3, outputPerMTok: 4 },
+  });
+});
+
+test("init: parseInitArgs --cors-origin is repeatable and preserves order", () => {
+  const parsed = parseInitArgs(["--cors-origin", "https://a.example", "--cors-origin", "https://b.example"]);
+  assert.ok(!("error" in parsed) && !("help" in parsed));
+  if ("error" in parsed || "help" in parsed) return;
+  assert.deepEqual(parsed.overrides.corsOrigins, ["https://a.example", "https://b.example"]);
+});
+
+test("init: parseInitArgs rejects an invalid --port", () => {
+  const parsed = parseInitArgs(["--port", "not-a-number"]);
+  assert.ok("error" in parsed);
+  const parsedZero = parseInitArgs(["--port", "0"]);
+  assert.ok("error" in parsedZero);
+  const parsedFloat = parseInitArgs(["--port", "80.5"]);
+  assert.ok("error" in parsedFloat);
+  const parsedTooBig = parseInitArgs(["--port", "70000"]);
+  assert.ok("error" in parsedTooBig);
+});
+
+test("init: parseInitArgs rejects an invalid --upstream-url", () => {
+  const parsed = parseInitArgs(["--upstream-url", "not a url"]);
+  assert.ok("error" in parsed);
+});
+
+test("init: parseInitArgs rejects a malformed --model spec", () => {
+  const parsed = parseInitArgs(["--model", "just-a-name"]);
+  assert.ok("error" in parsed);
+});
+
+test("init: parseInitArgs rejects an unknown --store value", () => {
+  const parsed = parseInitArgs(["--store", "s3"]);
+  assert.ok("error" in parsed);
+});
+
+test("init: parseInitArgs rejects non-positive --monthly-usd / --daily-usd / --rate-limit", () => {
+  assert.ok("error" in parseInitArgs(["--monthly-usd", "0"]));
+  assert.ok("error" in parseInitArgs(["--daily-usd", "-1"]));
+  assert.ok("error" in parseInitArgs(["--rate-limit", "abc"]));
+});
+
+test("init: parseInitArgs rejects a flag with a missing value", () => {
+  const parsed = parseInitArgs(["--port"]);
+  assert.ok("error" in parsed);
+});
+
+test("init: parseInitArgs rejects --store-path combined with --store memory", () => {
+  const parsed = parseInitArgs(["--store", "memory", "--store-path", "./state.json"]);
+  assert.ok("error" in parsed);
+});
+
+test("init: parseInitArgs accepts --store-path with --store file (or no --store flag)", () => {
+  const withFile = parseInitArgs(["--store", "file", "--store-path", "./state.json"]);
+  assert.ok(!("error" in withFile) && !("help" in withFile));
+  const withoutStoreFlag = parseInitArgs(["--store-path", "./state.json"]);
+  assert.ok(!("error" in withoutStoreFlag) && !("help" in withoutStoreFlag));
 });
 
 // ---------------------------------------------------------------------------
@@ -172,6 +318,150 @@ test("init: non-TTY without --yes exits non-zero with a hint, without hanging", 
   assert.ok(!existsSync(cfgPath));
 });
 
+test("init: non-TTY without --yes is refused even when flags are present (no partial-flags escape hatch)", async (t) => {
+  const dir = tmpDir("sekimori-init-notty-flags-");
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const cfgPath = join(dir, "sekimori.config.json");
+
+  const captured = capturingOutput();
+  const exitCode = await runInit(
+    [cfgPath, "--port", "3000", "--monthly-usd", "10"],
+    silentIO({ output: captured.stream, isTTY: false }),
+  );
+  assert.notEqual(exitCode, 0);
+  assert.match(captured.text(), /--yes/);
+  assert.ok(!existsSync(cfgPath));
+});
+
+// ---------------------------------------------------------------------------
+// runInit: per-setting flags with --yes (issue #13)
+// ---------------------------------------------------------------------------
+
+test("init: --yes with per-setting flags writes exactly those values, defaults elsewhere", async (t) => {
+  const dir = tmpDir("sekimori-init-flags-");
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const cfgPath = join(dir, "sekimori.config.json");
+
+  const exitCode = await runInit(
+    [
+      cfgPath,
+      "--yes",
+      "--port",
+      "3000",
+      "--upstream-url",
+      "https://upstream.example.com",
+      "--model",
+      "claude-haiku-4-5-20251001=1,5",
+      "--monthly-usd",
+      "10",
+      "--daily-usd",
+      "0.25",
+      "--rate-limit",
+      "42",
+      "--store",
+      "file",
+      "--store-path",
+      "custom/state.json",
+      "--cors-origin",
+      "https://example.com",
+      "--cors-origin",
+      "https://foo.example",
+      "--pinned-system",
+      "You are a pirate.",
+    ],
+    silentIO(),
+  );
+  assert.equal(exitCode, 0);
+
+  const parsed = JSON.parse(readFileSync(cfgPath, "utf8"));
+  assert.equal(parsed.port, 3000);
+  assert.equal(parsed.upstream.baseUrl, "https://upstream.example.com");
+  assert.deepEqual(parsed.models, { "claude-haiku-4-5-20251001": { inputPerMTok: 1, outputPerMTok: 5 } });
+  assert.equal(parsed.budget.monthlyUsd, 10);
+  assert.equal(parsed.budget.defaultDailyPerTokenUsd, 0.25);
+  assert.equal(parsed.rateLimit.requestsPerMinute, 42);
+  assert.equal(parsed.store.type, "file");
+  assert.equal(parsed.store.path, "custom/state.json");
+  assert.deepEqual(parsed.cors.allowedOrigins, ["https://example.com", "https://foo.example"]);
+  assert.equal(parsed.pinnedSystemPrompt, "You are a pirate.");
+});
+
+test("init: --yes with --model given replaces the default model list entirely", async (t) => {
+  const dir = tmpDir("sekimori-init-flags-models-");
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const cfgPath = join(dir, "sekimori.config.json");
+
+  const exitCode = await runInit(
+    [cfgPath, "--yes", "--model", "custom-model=2,7"],
+    silentIO(),
+  );
+  assert.equal(exitCode, 0);
+
+  const parsed = JSON.parse(readFileSync(cfgPath, "utf8"));
+  assert.deepEqual(parsed.models, { "custom-model": { inputPerMTok: 2, outputPerMTok: 7 } });
+  assert.ok(!("claude-haiku-4-5-20251001" in parsed.models));
+});
+
+test("init: --yes without flags still writes pure defaults (regression guard)", async (t) => {
+  const dir = tmpDir("sekimori-init-flags-none-");
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const cfgPath = join(dir, "sekimori.config.json");
+
+  const exitCode = await runInit([cfgPath, "--yes"], silentIO());
+  assert.equal(exitCode, 0);
+  const parsed = JSON.parse(readFileSync(cfgPath, "utf8"));
+  assert.equal(parsed.port, 8787);
+  assert.equal(parsed.budget.monthlyUsd, 30);
+});
+
+test("init: invalid flag values are rejected with non-zero exit and nothing written", async (t) => {
+  const dir = tmpDir("sekimori-init-flags-invalid-");
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const cfgPath = join(dir, "sekimori.config.json");
+
+  const cases = [
+    ["--port", "not-a-number"],
+    ["--model", "malformed-spec"],
+    ["--store", "s3"],
+    ["--upstream-url", "not a url"],
+    ["--monthly-usd", "-5"],
+  ];
+
+  for (const flagArgs of cases) {
+    const captured = capturingOutput();
+    const exitCode = await runInit(
+      [cfgPath, "--yes", ...flagArgs],
+      silentIO({ output: captured.stream }),
+    );
+    assert.notEqual(exitCode, 0, `expected failure for ${flagArgs.join(" ")}`);
+    assert.ok(!existsSync(cfgPath), `expected no file written for ${flagArgs.join(" ")}`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// runInit: --help (issue #13)
+// ---------------------------------------------------------------------------
+
+test("init: --help prints usage and exits 0 without writing a file", async (t) => {
+  const dir = tmpDir("sekimori-init-help-");
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const cfgPath = join(dir, "sekimori.config.json");
+
+  const captured = capturingOutput();
+  const exitCode = await runInit([cfgPath, "--help"], silentIO({ output: captured.stream, isTTY: false }));
+  assert.equal(exitCode, 0);
+  assert.ok(!existsSync(cfgPath));
+  assert.match(captured.text(), /Usage: sekimori init/);
+  assert.match(captured.text(), /--model name=in,out/);
+  assert.equal(captured.text(), INIT_HELP_TEXT);
+});
+
+test("init: --help wins even alongside a non-TTY refusal or bad flags", async (t) => {
+  const captured = capturingOutput();
+  const exitCode = await runInit(["--bogus-flag", "--help"], silentIO({ output: captured.stream, isTTY: false }));
+  assert.equal(exitCode, 0);
+});
+
 test("init: interactive prompts (simulated TTY) accept typed answers and defaults", async (t) => {
   const dir = tmpDir("sekimori-init-interactive-");
   t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -231,6 +521,73 @@ test("init: interactive prompts (simulated TTY) accept typed answers and default
   assert.match(captured.text(), /REFERENCE VALUES/);
 });
 
+test("init: interactive mode pre-answers flagged settings (prints an ack, no prompt) and still prompts for the rest", async (t) => {
+  const dir = tmpDir("sekimori-init-interactive-flags-");
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const cfgPath = join(dir, "sekimori.config.json");
+
+  const input = new PassThrough();
+  const captured = capturingOutput();
+
+  // port, models, monthly budget, store type, store path are pre-answered via
+  // flags below and must NOT be prompted for. Remaining prompts, in order:
+  // upstream URL, daily budget, rate limit, cors origins, pinned system.
+  const answers = [
+    "", // upstream base URL -> default
+    "0.75", // daily per-token budget
+    "15", // rate limit
+    "https://example.com", // cors origins
+    "hello", // pinned system prompt
+  ];
+  const feeder = (async () => {
+    for (const line of answers) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      input.write(`${line}\n`);
+    }
+  })();
+
+  const exitCode = await runInit(
+    [
+      cfgPath,
+      "--port",
+      "3000",
+      "--model",
+      "custom-model=2,3",
+      "--monthly-usd",
+      "15",
+      "--store",
+      "file",
+      "--store-path",
+      "custom/path.json",
+    ],
+    { input, output: captured.stream, isTTY: true },
+  );
+  await feeder;
+  assert.equal(exitCode, 0, captured.text());
+
+  const parsed = JSON.parse(readFileSync(cfgPath, "utf8"));
+  assert.equal(parsed.port, 3000);
+  assert.equal(parsed.upstream.baseUrl, "https://api.anthropic.com");
+  assert.deepEqual(parsed.models, { "custom-model": { inputPerMTok: 2, outputPerMTok: 3 } });
+  assert.equal(parsed.budget.monthlyUsd, 15);
+  assert.equal(parsed.budget.defaultDailyPerTokenUsd, 0.75);
+  assert.equal(parsed.rateLimit.requestsPerMinute, 15);
+  assert.equal(parsed.store.type, "file");
+  assert.equal(parsed.store.path, "custom/path.json");
+  assert.deepEqual(parsed.cors.allowedOrigins, ["https://example.com"]);
+  assert.equal(parsed.pinnedSystemPrompt, "hello");
+
+  const text = captured.text();
+  assert.match(text, /port: 3000 \(from --port\)/);
+  assert.match(text, /models: custom-model \(from --model\)/);
+  assert.match(text, /monthly budget USD: 15 \(from --monthly-usd\)/);
+  assert.match(text, /store: file \(from --store\)/);
+  assert.match(text, /store file path: custom\/path\.json \(from --store-path\)/);
+  // promptModels' interactive-only banner must NOT appear - models was
+  // pre-answered, so that prompt path never ran.
+  assert.doesNotMatch(text, /REFERENCE VALUES/);
+});
+
 // ---------------------------------------------------------------------------
 // Real CLI spawns (`tsx src/main.ts init ...`) - the acceptance criteria
 // explicitly require exercising the real entry point, not just the module.
@@ -274,5 +631,64 @@ test(
     assert.notEqual(result.status, 0);
     assert.match(`${result.stdout}${result.stderr}`, /--yes/);
     assert.ok(!existsSync(cfgPath));
+  },
+);
+
+test("init: real CLI - `sekimori init --help` exits 0 and prints usage", { skip: !existsSync(TSX_BIN) }, () => {
+  const result = spawnSync(TSX_BIN, [MAIN_TS, "init", "--help"], {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+    timeout: 20_000,
+  });
+  assert.equal(result.status, 0, `stdout: ${result.stdout}\nstderr: ${result.stderr}`);
+  assert.match(result.stdout, /Usage: sekimori init/);
+});
+
+test("init: real CLI - `sekimori --help` and `sekimori help` exit 0 and print top-level usage", { skip: !existsSync(TSX_BIN) }, () => {
+  for (const helpArg of ["--help", "help"]) {
+    const result = spawnSync(TSX_BIN, [MAIN_TS, helpArg], {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+      timeout: 20_000,
+    });
+    assert.equal(result.status, 0, `stdout: ${result.stdout}\nstderr: ${result.stderr}`);
+    assert.match(result.stdout, /Usage:/);
+    assert.match(result.stdout, /sekimori init/);
+  }
+});
+
+test(
+  "init: real CLI - per-setting flags with --yes write exactly those values through the real entry point",
+  { skip: !existsSync(TSX_BIN) },
+  (t) => {
+    const dir = tmpDir("sekimori-init-cli-flags-");
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    const cfgPath = join(dir, "sekimori.config.json");
+
+    const result = spawnSync(
+      TSX_BIN,
+      [
+        MAIN_TS,
+        "init",
+        cfgPath,
+        "--yes",
+        "--port",
+        "3000",
+        "--model",
+        "claude-haiku-4-5-20251001=1,5",
+        "--monthly-usd",
+        "10",
+        "--cors-origin",
+        "https://example.com",
+      ],
+      { cwd: REPO_ROOT, encoding: "utf8", timeout: 20_000 },
+    );
+
+    assert.equal(result.status, 0, `stdout: ${result.stdout}\nstderr: ${result.stderr}`);
+    const parsed = JSON.parse(readFileSync(cfgPath, "utf8"));
+    assert.equal(parsed.port, 3000);
+    assert.deepEqual(parsed.models, { "claude-haiku-4-5-20251001": { inputPerMTok: 1, outputPerMTok: 5 } });
+    assert.equal(parsed.budget.monthlyUsd, 10);
+    assert.deepEqual(parsed.cors.allowedOrigins, ["https://example.com"]);
   },
 );

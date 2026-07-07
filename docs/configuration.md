@@ -38,13 +38,46 @@ that `sekimori` would then refuse to start with. It does **not** require
 exported later, right before starting sekimori (see the printed "next
 steps").
 
+Every setting can also be pre-answered with a flag (issue #13) — `--port`,
+`--upstream-url`, `--model`, `--monthly-usd`, `--daily-usd`, `--rate-limit`,
+`--store`, `--store-path`, `--cors-origin`, `--pinned-system`. In interactive
+mode a flagged setting is acknowledged (`<setting>: <value> (from --flag)`)
+instead of prompted, and every other setting still prompts as usual; with
+`--yes`, a flagged setting takes the flag's value and every other setting
+takes its default — so `--yes` plus flags is fully non-interactive **and**
+fully customized:
+
+```bash
+sekimori init --yes --port 3000 --model claude-haiku-4-5-20251001=1,5 \
+  --monthly-usd 10 --cors-origin https://example.com
+```
+
+Invalid flag values (non-numeric/out-of-range numbers, a malformed
+`--model` spec, an unknown `--store` value, a malformed `--upstream-url`,
+`--store-path` combined with `--store memory`, ...) are rejected with a
+one-line error and a usage pointer, exit non-zero, and write nothing — the
+same fail-closed rule as everywhere else in sekimori. `sekimori init --help`
+prints the full flag list with defaults and more examples; `sekimori --help`
+/ `sekimori help` print brief top-level usage.
+
 Flags:
 
 | Flag | Effect |
 |---|---|
 | `[path]` | Where to write the config. Default `./sekimori.config.json`. |
 | `--force` | Overwrite an existing file at `path` (refused otherwise, exit non-zero). |
-| `--yes` | Non-interactive: writes every default without prompting. Also required when stdin is not a TTY (e.g. in scripts/CI) — otherwise `sekimori init` exits non-zero immediately rather than hang waiting for input. |
+| `--yes`, `-y` | Non-interactive: writes every default (or given flag values) without prompting. Also required when stdin is not a TTY (e.g. in scripts/CI) — otherwise `sekimori init` exits non-zero immediately rather than hang waiting for input, even if flags are present. |
+| `--help`, `-h` | Print init usage/flags/examples and exit 0. |
+| `--port N` | Listen port. Must be a positive integer <= 65535. Default `8787`. |
+| `--upstream-url URL` | Upstream base URL. Must be a valid URL. Default `https://api.anthropic.com`. |
+| `--model name=inputPerMTok,outputPerMTok` | Add a model to the allow list / price table (positive USD/MTok prices). Repeatable; if given at least once, **replaces** the default model list entirely instead of merging with it. |
+| `--monthly-usd N` | `budget.monthlyUsd`. Must be a positive number. Default `30`. |
+| `--daily-usd N` | `budget.defaultDailyPerTokenUsd`. Must be a positive number. Default `0.5`. |
+| `--rate-limit N` | `rateLimit.requestsPerMinute`. Must be a positive number. Default `10`. |
+| `--store file\|memory` | `store.type`. Default `file`. |
+| `--store-path PATH` | `store.path` (only meaningful with `store.type: "file"`). Rejected together with `--store memory`. Default `.sekimori/state.json`. |
+| `--cors-origin ORIGIN` | Add an allowed CORS origin. Repeatable. Default: none. |
+| `--pinned-system TEXT` | `pinnedSystemPrompt`. Default: none (`null`). |
 
 ## Keys
 

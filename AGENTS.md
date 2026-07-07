@@ -74,8 +74,21 @@ accepts.
    npx tsx src/main.ts init --yes [path]   # exit 0, writes path (default ./sekimori.config.json)
    ```
 
-   As of today `--yes` writes only defaults; per-setting flags are planned
-   (issue #13). Until then, for a customized config use path 2.
+   Every setting also has a flag (`--port`, `--upstream-url`, `--model
+   name=inputPerMTok,outputPerMTok` — repeatable, replaces the default
+   model list entirely once given at least once — `--monthly-usd`,
+   `--daily-usd`, `--rate-limit`, `--store file|memory`, `--store-path`,
+   `--cors-origin` — repeatable — `--pinned-system`), so `--yes` plus flags
+   is a fully non-interactive, fully customized config: agents never need
+   to hand-edit JSON. Invalid flag values fail closed (one-line error,
+   exit non-zero, nothing written); run `npx tsx src/main.ts init --help`
+   for the full list, defaults, and more examples. Worked example:
+
+   ```bash
+   npx tsx src/main.ts init --yes --port 3000 \
+     --model claude-haiku-4-5-20251001=1,5 --monthly-usd 10 \
+     --cors-origin https://example.com
+   ```
 
 2. **Write the JSON yourself** against
    [docs/configuration.md](docs/configuration.md), starting from

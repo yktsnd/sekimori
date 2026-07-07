@@ -12,6 +12,18 @@ All notable changes to sekimori are documented here. The format follows
   owner-report template, hard rules), plus agent-operator positioning in
   both READMEs, a new "agents are first-class operators" design principle,
   and the round-2 sustainability review (`docs/history/06`)
+- `sekimori init` per-setting flags and `--help` (issue #13): `--port`,
+  `--upstream-url`, `--model name=in,out` (repeatable, replaces the
+  default model list), `--monthly-usd`, `--daily-usd`, `--rate-limit`,
+  `--store`, `--store-path`, `--cors-origin` (repeatable), and
+  `--pinned-system`, each validated up front and fed through the same
+  `validateConfig` path the wizard already uses (fail-closed: invalid
+  values write nothing); `--yes` plus flags is now a fully non-interactive,
+  fully customized config, and in interactive mode a flagged setting is
+  pre-answered instead of prompted. `sekimori init --help`, `sekimori
+  --help`, and `sekimori help` print usage and exit 0. `AGENTS.md` now
+  ships in the npm tarball (`files` in `package.json`), closing the last
+  checkbox of issue #12.
 
 ### Added — v0.2 "distribution-ready"
 - `sekimori init [path] [--force] [--yes]`: interactive config generator

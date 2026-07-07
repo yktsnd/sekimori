@@ -44,7 +44,7 @@ no guesswork, machine-verifiable results.
       rules), shipped in the npm package (packaging wired in the init-flags
       issue); README/positioning updated so the agent use case is
       first-class
-- [ ] Fully non-interactive `sekimori init`: per-setting flags (`--port`,
+- [x] Fully non-interactive `sekimori init`: per-setting flags (`--port`,
       `--model name=input,output`, `--monthly-usd`, `--daily-usd`,
       `--rate-limit`, `--store`, `--cors-origin`, `--pinned-system`, ...)
       plus `--help`; agents never hand-edit JSON either

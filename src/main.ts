@@ -5,7 +5,25 @@ import { serve } from "@hono/node-server";
 import { createApp } from "./app.js";
 import { loadConfigFromFile, ConfigError, type SekimoriConfig } from "./config.js";
 import { FileStore, MemoryStore, type Store } from "./store.js";
-import { runInit } from "./init.js";
+import { runInit, INIT_HELP_TEXT } from "./init.js";
+
+// Brief top-level usage (issue #13): `sekimori --help` / `sekimori help`.
+// Deliberately short - `sekimori init --help` (INIT_HELP_TEXT) covers the
+// init flags in full; this just points to the two commands that exist.
+const TOP_LEVEL_HELP_TEXT = `sekimori - a minimal self-hosted gateway for Anthropic-compatible LLM APIs.
+
+Usage:
+  sekimori [configPath]          Start the server (default: ./sekimori.config.json)
+  sekimori init [path] [flags]   Generate a config file (interactive, or non-interactive with --yes)
+  sekimori init --help           Show init flags and examples
+  sekimori --help                Show this help
+
+Examples:
+  sekimori
+  sekimori ./my.config.json
+  sekimori init --yes
+  sekimori init --yes --port 3000 --model claude-haiku-4-5-20251001=1,5 --monthly-usd 10
+`;
 
 // A-3: print a summary of the effective settings at startup. Never prints
 // secrets (the upstream API key or the admin key values). Lets the operator
@@ -73,6 +91,12 @@ async function runServe(configPath: string): Promise<void> {
 // behavior never has to change.
 async function run(argv: string[]): Promise<void> {
   const args = argv.slice(2);
+
+  if (args[0] === "--help" || args[0] === "-h" || args[0] === "help") {
+    process.stdout.write(TOP_LEVEL_HELP_TEXT);
+    process.exit(0);
+    return;
+  }
 
   if (args[0] === "init") {
     const exitCode = await runInit(args.slice(1), {

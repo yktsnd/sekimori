@@ -33,35 +33,257 @@ export interface InitIO {
   isTTY: boolean;
 }
 
+/** Per-setting overrides parsed from CLI flags (issue #13). Every field is
+ * optional: `undefined` means "no flag given for this setting", so the
+ * caller (defaults for --yes, or the interactive prompt loop) knows exactly
+ * which settings still need a value. `models` and `corsOrigins` are only
+ * set when the corresponding repeatable flag was given at least once -
+ * when set, they REPLACE the default entirely (they don't merge with it). */
+export interface InitFlagOverrides {
+  port?: number;
+  upstreamUrl?: string;
+  models?: Record<string, ModelPricing>;
+  monthlyUsd?: number;
+  dailyUsd?: number;
+  rateLimit?: number;
+  storeType?: "file" | "memory";
+  storePath?: string;
+  corsOrigins?: string[];
+  pinnedSystem?: string;
+}
+
 export interface ParsedInitArgs {
   path: string;
   force: boolean;
   yes: boolean;
+  overrides: InitFlagOverrides;
 }
 
-export type ParseInitArgsResult = ParsedInitArgs | { error: string };
+export type ParseInitArgsResult = ParsedInitArgs | { error: string } | { help: true };
 
-/** Parses `sekimori init [path] [--force] [--yes]`. */
+export const INIT_USAGE_LINE =
+  "Usage: sekimori init [path] [--force] [--yes] [--help] [--port N] [--upstream-url URL] " +
+  "[--model name=in,out]... [--monthly-usd N] [--daily-usd N] [--rate-limit N] " +
+  "[--store file|memory] [--store-path PATH] [--cors-origin ORIGIN]... [--pinned-system TEXT]";
+
+export const INIT_HELP_TEXT = `${INIT_USAGE_LINE}
+
+Generates a sekimori.config.json - interactively (default), or fully
+non-interactively with --yes. Every flag below overrides the corresponding
+setting; in interactive mode a flagged setting is pre-answered (printed,
+not prompted) and every other setting still prompts as usual. In
+non-interactive mode (--yes) a flagged setting takes the flag's value and
+every other setting takes its default.
+
+Positional:
+  path                    Where to write the config (default: ./sekimori.config.json)
+
+Flags:
+  --force
+      Overwrite an existing file at path.
+  --yes, -y
+      Non-interactive: write defaults (or given flag values) without
+      prompting. Also required when stdin is not a TTY.
+  --help, -h
+      Show this help and exit.
+  --port N
+      Listen port (default: 8787).
+  --upstream-url URL
+      Upstream base URL (default: https://api.anthropic.com).
+  --model name=in,out
+      Add a model to the allow list / price table (USD per MTok), e.g.
+      --model claude-haiku-4-5-20251001=1,5. Repeatable; if given at least
+      once, REPLACES the default model list entirely.
+  --monthly-usd N
+      Monthly budget cap in USD (default: 30).
+  --daily-usd N
+      Default per-token daily budget cap in USD (default: 0.5).
+  --rate-limit N
+      Requests per minute (default: 10).
+  --store file|memory
+      Store backend (default: file).
+  --store-path PATH
+      File store path (default: .sekimori/state.json). Rejected together
+      with --store memory.
+  --cors-origin ORIGIN
+      Add an allowed CORS origin. Repeatable (default: none).
+  --pinned-system TEXT
+      Server-pinned system prompt (default: none / pass through the
+      client's system field).
+
+Examples:
+  sekimori init --yes
+  sekimori init --yes --port 3000 --model claude-haiku-4-5-20251001=1,5 \\
+    --monthly-usd 10 --cors-origin https://example.com
+  sekimori init ./my.config.json --force --store memory
+`;
+
+/** Parses `--model name=inputPerMTok,outputPerMTok`. Exported for tests. */
+export function parseModelSpec(spec: string): { name: string; pricing: ModelPricing } | { error: string } {
+  const usage = `expected name=inputPerMTok,outputPerMTok, e.g. claude-haiku-4-5-20251001=1,5`;
+  const eq = spec.indexOf("=");
+  if (eq <= 0) {
+    return { error: `invalid --model value: "${spec}" (${usage})` };
+  }
+  const name = spec.slice(0, eq).trim();
+  const parts = spec.slice(eq + 1).split(",");
+  if (name === "" || parts.length !== 2) {
+    return { error: `invalid --model value: "${spec}" (${usage})` };
+  }
+  const inputPerMTok = Number(parts[0].trim());
+  const outputPerMTok = Number(parts[1].trim());
+  if (!Number.isFinite(inputPerMTok) || !(inputPerMTok > 0) || !Number.isFinite(outputPerMTok) || !(outputPerMTok > 0)) {
+    return { error: `invalid --model value: "${spec}" (prices must be positive numbers - ${usage})` };
+  }
+  return { name, pricing: { inputPerMTok, outputPerMTok } };
+}
+
+/** Parses `sekimori init [path] [--force] [--yes] [flags...]`. Validates
+ * every flag value eagerly (fail-closed: an invalid flag must never reach
+ * the point of writing a file), and returns `{ help: true }` if --help/-h
+ * was given anywhere in `args` (checked upfront so --help always wins,
+ * regardless of position or other flags being malformed). */
 export function parseInitArgs(args: string[]): ParseInitArgsResult {
+  if (args.includes("--help") || args.includes("-h")) {
+    return { help: true };
+  }
+
   let path: string | undefined;
   let force = false;
   let yes = false;
+  let modelsGiven: Record<string, ModelPricing> | undefined;
+  let corsGiven: string[] | undefined;
+  let storeTypeGiven: "file" | "memory" | undefined;
+  let storePathGiven: string | undefined;
+  const overrides: InitFlagOverrides = {};
 
-  for (const arg of args) {
+  const needsValue = new Set([
+    "--port",
+    "--upstream-url",
+    "--model",
+    "--monthly-usd",
+    "--daily-usd",
+    "--rate-limit",
+    "--store",
+    "--store-path",
+    "--cors-origin",
+    "--pinned-system",
+  ]);
+
+  let i = 0;
+  while (i < args.length) {
+    const arg = args[i];
+
     if (arg === "--force") {
       force = true;
-    } else if (arg === "--yes" || arg === "-y") {
-      yes = true;
-    } else if (arg.startsWith("-")) {
-      return { error: `unknown flag: ${arg}` };
-    } else if (path === undefined) {
-      path = arg;
-    } else {
-      return { error: `unexpected extra argument: ${arg}` };
+      i += 1;
+      continue;
     }
+    if (arg === "--yes" || arg === "-y") {
+      yes = true;
+      i += 1;
+      continue;
+    }
+
+    if (needsValue.has(arg)) {
+      const value = args[i + 1];
+      if (value === undefined) {
+        return { error: `missing value for ${arg}` };
+      }
+
+      switch (arg) {
+        case "--port": {
+          const n = Number(value);
+          if (!Number.isFinite(n) || !Number.isInteger(n) || !(n > 0) || n > 65535) {
+            return { error: `invalid --port value: "${value}" (must be a positive integer <= 65535)` };
+          }
+          overrides.port = n;
+          break;
+        }
+        case "--upstream-url": {
+          try {
+            new URL(value);
+          } catch {
+            return { error: `invalid --upstream-url value: "${value}" (must be a valid URL)` };
+          }
+          overrides.upstreamUrl = value;
+          break;
+        }
+        case "--model": {
+          const parsed = parseModelSpec(value);
+          if ("error" in parsed) return parsed;
+          modelsGiven = { ...(modelsGiven ?? {}), [parsed.name]: parsed.pricing };
+          break;
+        }
+        case "--monthly-usd": {
+          const n = Number(value);
+          if (!Number.isFinite(n) || !(n > 0)) {
+            return { error: `invalid --monthly-usd value: "${value}" (must be a positive number)` };
+          }
+          overrides.monthlyUsd = n;
+          break;
+        }
+        case "--daily-usd": {
+          const n = Number(value);
+          if (!Number.isFinite(n) || !(n > 0)) {
+            return { error: `invalid --daily-usd value: "${value}" (must be a positive number)` };
+          }
+          overrides.dailyUsd = n;
+          break;
+        }
+        case "--rate-limit": {
+          const n = Number(value);
+          if (!Number.isFinite(n) || !(n > 0)) {
+            return { error: `invalid --rate-limit value: "${value}" (must be a positive number)` };
+          }
+          overrides.rateLimit = n;
+          break;
+        }
+        case "--store": {
+          if (value !== "file" && value !== "memory") {
+            return { error: `invalid --store value: "${value}" (must be "file" or "memory")` };
+          }
+          storeTypeGiven = value;
+          break;
+        }
+        case "--store-path": {
+          storePathGiven = value;
+          break;
+        }
+        case "--cors-origin": {
+          corsGiven = [...(corsGiven ?? []), value];
+          break;
+        }
+        case "--pinned-system": {
+          overrides.pinnedSystem = value;
+          break;
+        }
+      }
+
+      i += 2;
+      continue;
+    }
+
+    if (arg.startsWith("-")) {
+      return { error: `unknown flag: ${arg}` };
+    }
+    if (path === undefined) {
+      path = arg;
+      i += 1;
+      continue;
+    }
+    return { error: `unexpected extra argument: ${arg}` };
   }
 
-  return { path: path ?? "./sekimori.config.json", force, yes };
+  if (storePathGiven !== undefined && storeTypeGiven === "memory") {
+    return { error: "--store-path cannot be combined with --store memory (pick one store backend)" };
+  }
+  if (storeTypeGiven !== undefined) overrides.storeType = storeTypeGiven;
+  if (storePathGiven !== undefined) overrides.storePath = storePathGiven;
+  if (modelsGiven !== undefined) overrides.models = modelsGiven;
+  if (corsGiven !== undefined) overrides.corsOrigins = corsGiven;
+
+  return { path: path ?? "./sekimori.config.json", force, yes, overrides };
 }
 
 interface Answers {
@@ -91,6 +313,26 @@ function defaultAnswers(): Answers {
     storePath: ".sekimori/state.json",
     corsOrigins: [],
     pinnedSystemPrompt: null,
+  };
+}
+
+/** Applies flag overrides on top of the defaults for the `--yes` (fully
+ * non-interactive) path: unflagged settings keep their default, flagged
+ * settings take the flag's value. `storePath` is only meaningful when the
+ * resulting store type is "file" - buildConfigObject already blanks it out
+ * for "memory", so no special-casing is needed here. */
+function applyOverrides(defaults: Answers, overrides: InitFlagOverrides): Answers {
+  return {
+    port: overrides.port ?? defaults.port,
+    baseUrl: overrides.upstreamUrl ?? defaults.baseUrl,
+    models: overrides.models ?? defaults.models,
+    monthlyUsd: overrides.monthlyUsd ?? defaults.monthlyUsd,
+    defaultDailyPerTokenUsd: overrides.dailyUsd ?? defaults.defaultDailyPerTokenUsd,
+    requestsPerMinute: overrides.rateLimit ?? defaults.requestsPerMinute,
+    storeType: overrides.storeType ?? defaults.storeType,
+    storePath: overrides.storePath ?? defaults.storePath,
+    corsOrigins: overrides.corsOrigins ?? defaults.corsOrigins,
+    pinnedSystemPrompt: overrides.pinnedSystem !== undefined ? overrides.pinnedSystem : defaults.pinnedSystemPrompt,
   };
 }
 
@@ -230,39 +472,121 @@ async function promptModels(rl: Rl, output: NodeJS.WritableStream): Promise<Reco
   return models;
 }
 
-async function promptAll(rl: Rl, output: NodeJS.WritableStream): Promise<Answers> {
+/** Prints a one-line acknowledgment for a setting that was pre-answered by a
+ * flag in interactive mode, instead of prompting for it (issue #13). */
+function ack(output: NodeJS.WritableStream, label: string, value: string, flag: string): void {
+  output.write(`${label}: ${value} (from ${flag})\n`);
+}
+
+async function promptAll(rl: Rl, output: NodeJS.WritableStream, overrides: InitFlagOverrides): Promise<Answers> {
   const defaults = defaultAnswers();
 
-  const port = await promptPositiveNumber(rl, output, "port", defaults.port, { integer: true, max: 65535 });
-  const baseUrl = await promptUrl(rl, output, "upstream base URL", defaults.baseUrl);
-  const models = await promptModels(rl, output);
-  const monthlyUsd = await promptPositiveNumber(rl, output, "monthly budget USD", defaults.monthlyUsd);
-  const defaultDailyPerTokenUsd = await promptPositiveNumber(
-    rl,
-    output,
-    "default per-token daily budget USD",
-    defaults.defaultDailyPerTokenUsd,
-  );
-  const requestsPerMinute = await promptPositiveNumber(
-    rl,
-    output,
-    "rate limit requests/minute",
-    defaults.requestsPerMinute,
-    { integer: true },
-  );
-  const storeType = (await promptChoice(rl, output, "store: file or memory", defaults.storeType, [
-    "file",
-    "memory",
-  ])) as "file" | "memory";
-  const storePath =
-    storeType === "file" ? await promptString(rl, "  store file path", defaults.storePath) : "";
-  const corsRaw = await promptString(rl, "CORS allowed origins (comma-separated, empty = none)", "");
-  const corsOrigins = corsRaw
-    .split(",")
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-  const pinnedRaw = await promptString(rl, "pinned system prompt (empty = null / pass through client's system field)", "");
-  const pinnedSystemPrompt = pinnedRaw === "" ? null : pinnedRaw;
+  let port: number;
+  if (overrides.port !== undefined) {
+    port = overrides.port;
+    ack(output, "port", String(port), "--port");
+  } else {
+    port = await promptPositiveNumber(rl, output, "port", defaults.port, { integer: true, max: 65535 });
+  }
+
+  let baseUrl: string;
+  if (overrides.upstreamUrl !== undefined) {
+    baseUrl = overrides.upstreamUrl;
+    ack(output, "upstream base URL", baseUrl, "--upstream-url");
+  } else {
+    baseUrl = await promptUrl(rl, output, "upstream base URL", defaults.baseUrl);
+  }
+
+  let models: Record<string, ModelPricing>;
+  if (overrides.models !== undefined) {
+    models = overrides.models;
+    ack(output, "models", Object.keys(models).join(", "), "--model");
+  } else {
+    models = await promptModels(rl, output);
+  }
+
+  let monthlyUsd: number;
+  if (overrides.monthlyUsd !== undefined) {
+    monthlyUsd = overrides.monthlyUsd;
+    ack(output, "monthly budget USD", String(monthlyUsd), "--monthly-usd");
+  } else {
+    monthlyUsd = await promptPositiveNumber(rl, output, "monthly budget USD", defaults.monthlyUsd);
+  }
+
+  let defaultDailyPerTokenUsd: number;
+  if (overrides.dailyUsd !== undefined) {
+    defaultDailyPerTokenUsd = overrides.dailyUsd;
+    ack(output, "default per-token daily budget USD", String(defaultDailyPerTokenUsd), "--daily-usd");
+  } else {
+    defaultDailyPerTokenUsd = await promptPositiveNumber(
+      rl,
+      output,
+      "default per-token daily budget USD",
+      defaults.defaultDailyPerTokenUsd,
+    );
+  }
+
+  let requestsPerMinute: number;
+  if (overrides.rateLimit !== undefined) {
+    requestsPerMinute = overrides.rateLimit;
+    ack(output, "rate limit requests/minute", String(requestsPerMinute), "--rate-limit");
+  } else {
+    requestsPerMinute = await promptPositiveNumber(
+      rl,
+      output,
+      "rate limit requests/minute",
+      defaults.requestsPerMinute,
+      { integer: true },
+    );
+  }
+
+  let storeType: "file" | "memory";
+  if (overrides.storeType !== undefined) {
+    storeType = overrides.storeType;
+    ack(output, "store", storeType, "--store");
+  } else {
+    storeType = (await promptChoice(rl, output, "store: file or memory", defaults.storeType, [
+      "file",
+      "memory",
+    ])) as "file" | "memory";
+  }
+
+  let storePath: string;
+  if (storeType === "file") {
+    if (overrides.storePath !== undefined) {
+      storePath = overrides.storePath;
+      ack(output, "store file path", storePath, "--store-path");
+    } else {
+      storePath = await promptString(rl, "  store file path", defaults.storePath);
+    }
+  } else {
+    storePath = "";
+  }
+
+  let corsOrigins: string[];
+  if (overrides.corsOrigins !== undefined) {
+    corsOrigins = overrides.corsOrigins;
+    ack(output, "CORS allowed origins", corsOrigins.join(", "), "--cors-origin");
+  } else {
+    const corsRaw = await promptString(rl, "CORS allowed origins (comma-separated, empty = none)", "");
+    corsOrigins = corsRaw
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+  }
+
+  let pinnedSystemPrompt: string | null;
+  if (overrides.pinnedSystem !== undefined) {
+    pinnedSystemPrompt = overrides.pinnedSystem === "" ? null : overrides.pinnedSystem;
+    ack(output, "pinned system prompt", JSON.stringify(pinnedSystemPrompt), "--pinned-system");
+  } else {
+    const pinnedRaw = await promptString(
+      rl,
+      "pinned system prompt (empty = null / pass through client's system field)",
+      "",
+    );
+    pinnedSystemPrompt = pinnedRaw === "" ? null : pinnedRaw;
+  }
 
   return {
     port,
@@ -344,12 +668,16 @@ function printNextSteps(output: NodeJS.WritableStream, path: string): void {
  * process exit code; never calls process.exit itself (keeps it testable). */
 export async function runInit(args: string[], io: InitIO): Promise<number> {
   const parsed = parseInitArgs(args);
+  if ("help" in parsed) {
+    io.output.write(INIT_HELP_TEXT);
+    return 0;
+  }
   if ("error" in parsed) {
     io.output.write(`[sekimori init] ${parsed.error}\n`);
-    io.output.write("Usage: sekimori init [path] [--force] [--yes]\n");
+    io.output.write(`${INIT_USAGE_LINE}\n`);
     return 1;
   }
-  const { path, force, yes } = parsed;
+  const { path, force, yes, overrides } = parsed;
 
   if (existsSync(path) && !force) {
     io.output.write(
@@ -359,6 +687,11 @@ export async function runInit(args: string[], io: InitIO): Promise<number> {
     return 1;
   }
 
+  // Non-TTY without --yes is refused unconditionally, even when flags are
+  // present: interactive prompting would still be needed for any unflagged
+  // setting, and that would hang forever with no TTY attached. Keeping this
+  // rule simple (no "flags cover everything" special case) matches the
+  // existing --yes contract and avoids a second, harder-to-explain path.
   if (!yes && !io.isTTY) {
     io.output.write(
       "[sekimori init] stdin is not a TTY, so interactive prompts would hang forever - refusing to start.\n" +
@@ -367,7 +700,7 @@ export async function runInit(args: string[], io: InitIO): Promise<number> {
     return 1;
   }
 
-  const answers = yes ? defaultAnswers() : await runPrompts(io);
+  const answers = yes ? applyOverrides(defaultAnswers(), overrides) : await runPrompts(io, overrides);
   const configObject = buildConfigObject(answers);
 
   try {
@@ -389,11 +722,11 @@ export async function runInit(args: string[], io: InitIO): Promise<number> {
   return 0;
 }
 
-async function runPrompts(io: InitIO): Promise<Answers> {
+async function runPrompts(io: InitIO, overrides: InitFlagOverrides): Promise<Answers> {
   const rl = createInterface({ input: io.input, output: io.output });
   try {
     io.output.write("sekimori init - interactive config generator. Press Enter to accept the default in [brackets].\n");
-    return await promptAll(rl, io.output);
+    return await promptAll(rl, io.output, overrides);
   } finally {
     rl.close();
   }

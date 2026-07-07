@@ -76,13 +76,17 @@ sekimori はこの「公開前の必須セット」を、**設定ファイル 1 
 
 ## 8. ロードマップ(MVP 後)
 
-1. OpenAI 互換上流(`/v1/chat/completions`)
-2. Cloudflare Workers + Durable Objects デプロイ(エッジで動く 1 コマンド公開)
-3. BYOK モード(利用者が自分のキーを持ち込む。開発者の予算リスクをゼロにする選択肢)
-4. マジックリンク/OAuth による利用者認証(招待トークンの上位互換)
-5. 簡易利用状況ページ(静的 HTML 1 枚)
-6. `npm create sekimori` スキャフォールド(フロント雛形込み)
-7. 公開準備オーディター(見送り案の再回収)
+順序は DX レビュー([03-dx-review.md](03-dx-review.md))の結論を反映している。「最初の 5 分」を縮めるものを、デプロイ先の選択肢を増やすものより優先する。
+
+1. npm 配布(`npx sekimori` 一発起動)+ `sekimori init` 対話ウィザード(config 生成)
+2. デプロイガイド(Fly.io / Railway / VPS+Caddy。ドッグフーディングで実測しながら書く)
+3. OpenAI 互換上流(`/v1/chat/completions`)— Store と並ぶ公式拡張点として抽象化とセットで
+4. Cloudflare Workers + Durable Objects デプロイ(エッジで動く 1 コマンド公開)
+5. BYOK モード(利用者が自分のキーを持ち込む。開発者の予算リスクをゼロにする選択肢)
+6. マジックリンク/OAuth による利用者認証(招待トークンの上位互換)
+7. 簡易利用状況ページ(静的 HTML 1 枚)
+8. `npm create sekimori` スキャフォールド(フロント雛形込み)
+9. 公開準備オーディター(見送り案の再回収)
 
 ## 9. 名前について
 

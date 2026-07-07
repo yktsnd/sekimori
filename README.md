@@ -2,7 +2,7 @@
 
 > AI プロトタイプを、API キーを晒さず・予算を溶かさず・悪用されずに公開するための、最小のセルフホスト型ゲートウェイ。
 
-「週末に作った AI プロトタイプを、友人・SNS・β ユーザーに触らせたい」段階の個人開発者向け。設定ファイル 1 枚 + プロセス 1 個で、キー秘匿・予算上限・招待トークン認証・レート制限・system プロンプト固定・SSE 素通しを提供する。背景は [docs/00-background.md](docs/00-background.md)、コンセプトは [docs/01-concept.md](docs/01-concept.md)、実装契約は [docs/02-mvp-spec.md](docs/02-mvp-spec.md) を参照。
+「週末に作った AI プロトタイプを、友人・SNS・β ユーザーに触らせたい」段階の個人開発者向け。設定ファイル 1 枚 + プロセス 1 個で、キー秘匿・予算上限・招待トークン認証・レート制限・system プロンプト固定・SSE 素通しを提供する。背景は [docs/00-background.md](docs/00-background.md)、コンセプトは [docs/01-concept.md](docs/01-concept.md)、実装契約は [docs/02-mvp-spec.md](docs/02-mvp-spec.md)、DX レビューは [docs/03-dx-review.md](docs/03-dx-review.md)、デモ設計は [docs/04-demo-design.md](docs/04-demo-design.md) を参照。
 
 **単一プロセス前提**: sekimori は水平スケールに対応していない。レート制限・トークンストア(memory 時)はプロセス内メモリで完結する設計であり、複数インスタンスを同時に立てて共有することはできない。個人が身内に公開する規模(数十〜数千リクエスト/日程度)を想定している。
 

@@ -48,7 +48,7 @@ no guesswork, machine-verifiable results.
       `--model name=input,output`, `--monthly-usd`, `--daily-usd`,
       `--rate-limit`, `--store`, `--cors-origin`, `--pinned-system`, ...)
       plus `--help`; agents never hand-edit JSON either
-- [ ] `sekimori doctor <config>`: non-interactive self-check of a concrete
+- [x] `sekimori doctor <config>`: non-interactive self-check of a concrete
       installation (config validity, required env vars, store writability)
       with a plain-language summary for owners and `--json` + exit codes
       for agents

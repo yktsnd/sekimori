@@ -7,6 +7,18 @@ All notable changes to sekimori are documented here. The format follows
 ## [Unreleased]
 
 ### Added — v0.3 "agent-ready"
+- `sekimori doctor [config] [--json]` (issue #14): non-interactive,
+  no-TTY, no-network self-check of a concrete installation — config file
+  present/valid, required env vars set (never prints their values), the
+  configured store is writable (without ever touching an existing state
+  file), and whether body logging is on. Stable snake_case check names
+  (`config_file`, `config_valid`, `upstream_key_env`, `admin_key_env`,
+  `store_writable`, `logging`) with `status: "ok" | "warn" | "fail"` for
+  agents to key on; `--json` prints `{ ok, checks }` and nothing else.
+  Human output ends with a plain-language "Protection summary" (allowed
+  models, budget caps, rate limit, CORS, logging, store persistence) meant
+  to be pasted into an owner report. Exit 0 only when no check fails
+  (warnings, e.g. a memory store or `logBodies: true`, do not fail it).
 - `AGENTS.md`: operations manual for coding agents operating sekimori on
   behalf of a non-expert owner (deterministic commands, expected outputs,
   owner-report template, hard rules), plus agent-operator positioning in

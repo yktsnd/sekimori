@@ -115,10 +115,27 @@ accepts.
 curl -fsS http://localhost:8787/healthz        # -> {"ok":true}, exit 0
 ```
 
-Boot-time validation already guarantees config shape and env presence
-(a richer `sekimori doctor` self-check with `--json` is planned; issue #14).
-Behavioral verification — the full blocked/allowed scenario — runs offline
-from a clone:
+Run `sekimori doctor` after any config or environment change, and again
+right before handing the URL out — it is a non-interactive, offline,
+no-network self-check of the concrete installation (config validity,
+required env vars, store writability, body-logging state). It never starts
+the HTTP server.
+
+```bash
+npx tsx src/main.ts doctor [configPath]           # human output, exit 0 only if nothing failed
+npx tsx src/main.ts doctor [configPath] --json     # { "ok": boolean, "checks": [...] }
+```
+
+Agents should use `--json` and key on `checks[].name` / `checks[].status`
+(`"ok" | "warn" | "fail"`) — never on `detail` text, which is for humans.
+Check names are stable: `config_file`, `config_valid`, `upstream_key_env`,
+`admin_key_env`, `store_writable`, `logging`. `ok: true` means no check
+failed (warnings, e.g. a memory store or `logBodies: true`, do not fail it).
+When every check passes, the human-mode output ends with a "Protection
+summary" in plain language — that block is the source for the owner-report
+template below; paste it rather than re-deriving it. Behavioral
+verification — the full blocked/allowed scenario — runs offline from a
+clone:
 
 ```bash
 bash examples/demo.sh                          # 18 steps, exit 0, no API key, zero spend

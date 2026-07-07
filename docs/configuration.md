@@ -79,6 +79,59 @@ Flags:
 | `--cors-origin ORIGIN` | Add an allowed CORS origin. Repeatable. Default: none. |
 | `--pinned-system TEXT` | `pinnedSystemPrompt`. Default: none (`null`). |
 
+## `sekimori doctor` — installation self-check
+
+`sekimori init` proves a config file *could* start sekimori; `sekimori
+doctor` proves a *concrete installation* actually will. It is
+non-interactive, needs no TTY, never starts the HTTP server, and never makes
+a network call — it only reads the config file, checks that the required
+environment variables are set (never prints their values), and probes
+whether the configured store location is writable without ever touching an
+existing state file.
+
+```bash
+# from a clone:
+npx tsx src/main.ts doctor [configPath]
+# from an installed package:
+npx sekimori doctor [configPath]
+```
+
+`configPath` defaults to `./sekimori.config.json`, same as the serve
+command. Each check reports a stable snake_case `name`, a `status` of
+`"ok"`, `"warn"`, or `"fail"`, and a human-readable `detail`:
+
+| `name` | Meaning |
+|---|---|
+| `config_file` | The config file exists and is readable. |
+| `config_valid` | It parses as JSON and passes `validateConfig` (env-var presence is checked separately below, so this does not itself require secrets to be set). |
+| `upstream_key_env` | The environment variable named by `upstream.apiKeyEnv` is set and non-empty. |
+| `admin_key_env` | `SEKIMORI_ADMIN_KEY` is set and non-empty. |
+| `store_writable` | For `store.type: "file"`: the state file (or its directory) is writable. For `"memory"`: always a `warn` — accounting resets on every restart. |
+| `logging` | `warn` if `logging.logBodies: true`, else `ok`. |
+
+If `config_file` or `config_valid` fails, every remaining check reports
+`fail` with detail `"skipped: config not available"` — the `checks` array
+always contains all six names, in the order above, regardless of how far
+the run got.
+
+Default output is one line per check (`ok` / `WARN` / `FAIL`), followed —
+only when every check passes (warnings are fine) — by a "Protection
+summary" in plain language, built from the effective config: allowed
+models, monthly cap, per-token daily default, rate limit, CORS origins (or
+"browser access disabled"), whether body logging is on, and whether the
+store persists across restarts. That block is meant to be pasted straight
+into a report to the owner.
+
+`--json` prints a single JSON object to stdout and nothing else:
+`{ "ok": boolean, "checks": [ { "name", "status", "detail" }, ... ] }`.
+Agents should key on `checks[].name` / `checks[].status`, not on `detail`
+text. Exit code is `0` when `ok` is `true` (no check failed — warnings do
+not count), `1` otherwise, in both human and `--json` mode.
+
+Run it after any config or environment change, and again right before
+handing the URL to anyone. `sekimori doctor --help` prints the full flag
+list.
+
 ## Keys
 
 | Key | Description |

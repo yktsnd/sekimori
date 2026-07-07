@@ -6,16 +6,21 @@ import { createApp } from "./app.js";
 import { loadConfigFromFile, ConfigError, type SekimoriConfig } from "./config.js";
 import { FileStore, MemoryStore, type Store } from "./store.js";
 import { runInit, INIT_HELP_TEXT } from "./init.js";
+import { runDoctor } from "./doctor.js";
 
 // Brief top-level usage (issue #13): `sekimori --help` / `sekimori help`.
-// Deliberately short - `sekimori init --help` (INIT_HELP_TEXT) covers the
-// init flags in full; this just points to the two commands that exist.
+// Deliberately short - `sekimori init --help` (INIT_HELP_TEXT) and
+// `sekimori doctor --help` cover their own flags in full; this just points
+// to the commands that exist.
 const TOP_LEVEL_HELP_TEXT = `sekimori - a minimal self-hosted gateway for Anthropic-compatible LLM APIs.
 
 Usage:
   sekimori [configPath]          Start the server (default: ./sekimori.config.json)
   sekimori init [path] [flags]   Generate a config file (interactive, or non-interactive with --yes)
   sekimori init --help           Show init flags and examples
+  sekimori doctor [config] [--json]
+                                  Non-interactive installation self-check (default: ./sekimori.config.json)
+  sekimori doctor --help         Show doctor flags and examples
   sekimori --help                Show this help
 
 Examples:
@@ -23,6 +28,8 @@ Examples:
   sekimori ./my.config.json
   sekimori init --yes
   sekimori init --yes --port 3000 --model claude-haiku-4-5-20251001=1,5 --monthly-usd 10
+  sekimori doctor
+  sekimori doctor ./my.config.json --json
 `;
 
 // A-3: print a summary of the effective settings at startup. Never prints
@@ -104,6 +111,12 @@ async function run(argv: string[]): Promise<void> {
       output: process.stdout,
       isTTY: process.stdin.isTTY === true,
     });
+    process.exit(exitCode);
+    return;
+  }
+
+  if (args[0] === "doctor") {
+    const exitCode = runDoctor(args.slice(1), { output: process.stdout });
     process.exit(exitCode);
     return;
   }

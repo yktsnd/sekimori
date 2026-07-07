@@ -1,4 +1,4 @@
-// §8-5: usage 欠落時に worstCost が計上されること
+// Design doc 8-5: worstCost is charged when usage is missing
 
 import test from "node:test";
 import assert from "node:assert/strict";

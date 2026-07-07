@@ -1,4 +1,4 @@
-// §8-6: fail-closed — FileStore の書き込み失敗を注入 → 以後 503
+// Design doc 8-6: fail-closed - inject a FileStore write failure -> 503 from then on
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -6,7 +6,7 @@ import { FileStore, type FileStoreFS } from "../src/store.js";
 import { startMockUpstream, jsonMessagesHandler } from "./helpers/mock-upstream.js";
 import { buildTestConfig, buildApp, issueToken, messagesRequest } from "./helpers/test-app.js";
 
-/** 実ディスクを使わない、失敗を注入できる FileStoreFS。root/permission に依存しないための DI。 */
+/** FileStoreFS that avoids the real disk and can inject failures. DI so tests don't depend on root/permissions. */
 function makeControllableFs(): { fs: FileStoreFS; setShouldFail(v: boolean): void } {
   const files = new Map<string, string>();
   let shouldFail = false;
@@ -25,7 +25,7 @@ function makeControllableFs(): { fs: FileStoreFS; setShouldFail(v: boolean): voi
       files.set(path, data);
     },
     async mkdir() {
-      // no-op: 仮想ファイルシステムなのでディレクトリ作成は不要
+      // no-op: virtual filesystem, no directories to create
     },
   };
   return { fs, setShouldFail: (v: boolean) => (shouldFail = v) };

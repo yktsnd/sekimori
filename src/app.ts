@@ -1,6 +1,6 @@
-// app.ts — Hono アプリの組み立て
+// app.ts - assembling the Hono app
 //
-// main.ts からも test からも直接使えるように、サーバー起動処理とは分離してある。
+// Kept separate from server startup so both main.ts and tests can use it directly.
 
 import { timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
@@ -22,9 +22,9 @@ import {
 export interface AppDeps {
   config: SekimoriConfig;
   store: Store;
-  /** 上流 Anthropic API キー（config.upstream.apiKeyEnv が指す環境変数から読み取り済みの値）。 */
+  /** Upstream Anthropic API key (already read from the env var named by config.upstream.apiKeyEnv). */
   upstreamApiKey: string;
-  /** 管理者キー（環境変数 SEKIMORI_ADMIN_KEY の値）。 */
+  /** Admin key (the value of the SEKIMORI_ADMIN_KEY environment variable). */
   adminKey: string;
 }
 
@@ -55,7 +55,7 @@ function extractBearer(header: string | undefined | null): string | null {
   return match ? (match[1] as string) : null;
 }
 
-/** 文字数の違いによる早期リターンも含め、雑な比較よりはタイミング攻撃に強い比較。 */
+/** Constant-time-ish comparison (including the length-mismatch early return) - more resistant to timing attacks than a naive comparison. */
 function safeEqual(a: string, b: string): boolean {
   const bufA = Buffer.from(a, "utf8");
   const bufB = Buffer.from(b, "utf8");
@@ -68,17 +68,18 @@ export function createApp(deps: AppDeps): Hono {
   const rateLimiter = new RateLimiter(config.rateLimit.requestsPerMinute);
   const app = new Hono();
 
-  // A-5: 許可されていない Origin からのリクエストを受けた際、運営者に気づかせるための
-  // 1 行警告を stdout に出す。遮断そのもの（CORS ヘッダを出さないこと）は変えない。
+  // A-5: print a one-line stdout warning when a request arrives from an
+  // Origin that isn't allowed, so the operator notices. This doesn't change
+  // the actual blocking behavior (still no CORS headers).
   app.use("*", async (c, next) => {
     const origin = c.req.header("Origin");
     if (origin && !config.cors.allowedOrigins.includes(origin)) {
-      console.warn(`[sekimori] blocked origin: ${origin} (cors.allowedOrigins に追加が必要かもしれない)`);
+      console.warn(`[sekimori] blocked origin: ${origin} (you may need to add it to cors.allowedOrigins)`);
     }
     await next();
   });
 
-  // CORS: allowedOrigins が空なら CORS ヘッダを一切出さない（§7）。
+  // CORS: emit no CORS headers at all when allowedOrigins is empty (section 7).
   app.use(
     "*",
     cors({
@@ -88,7 +89,8 @@ export function createApp(deps: AppDeps): Hono {
     }),
   );
 
-  // ストア fail-closed ゲート: 直近の永続化に失敗していたら /healthz 以外は 503(§5)。
+  // Store fail-closed gate: if the most recent persist failed, everything
+  // except /healthz returns 503 (section 5).
   app.use("*", async (c, next) => {
     if (c.req.path === "/healthz") {
       await next();
@@ -142,7 +144,7 @@ export function createApp(deps: AppDeps): Hono {
       });
     };
 
-    // 1. Bearer トークン検証
+    // 1. Verify the bearer token
     const bearer = extractBearer(c.req.header("Authorization"));
     if (!bearer) {
       finish(401);
@@ -155,7 +157,7 @@ export function createApp(deps: AppDeps): Hono {
     }
     tokenId = tokenRecord.id;
 
-    // 2. レート制限
+    // 2. Rate limit
     const rl = rateLimiter.check(tokenRecord.id);
     if (!rl.allowed) {
       c.header("Retry-After", String(rl.retryAfterSeconds));
@@ -163,7 +165,7 @@ export function createApp(deps: AppDeps): Hono {
       return c.json(errorBody("rate_limit_error", "rate limit exceeded"), 429);
     }
 
-    // ボディ解析
+    // Parse body
     let parsedBody: unknown;
     try {
       parsedBody = await c.req.json();
@@ -177,7 +179,7 @@ export function createApp(deps: AppDeps): Hono {
     }
     requestBody = parsedBody;
 
-    // 3. model 許可リスト確認
+    // 3. Check the model allow list
     const requestedModel = parsedBody.model;
     if (typeof requestedModel !== "string" || !Object.hasOwn(config.models, requestedModel)) {
       finish(403);
@@ -186,26 +188,27 @@ export function createApp(deps: AppDeps): Hono {
     model = requestedModel;
     const pricing = config.models[requestedModel];
     if (!pricing) {
-      // Object.hasOwn で存在確認済みだが TypeScript の型上は narrow できないため防御的に。
+      // Already confirmed to exist via Object.hasOwn, but TypeScript can't
+      // narrow through that, so this stays as a defensive check.
       finish(403);
       return c.json(errorBody("permission_error", "model is not in the allow list"), 403);
     }
 
-    // max_tokens が正整数か
+    // max_tokens must be a positive integer
     const maxTokens = parsedBody.max_tokens;
     if (typeof maxTokens !== "number" || !Number.isInteger(maxTokens) || maxTokens <= 0) {
       finish(400);
       return c.json(errorBody("invalid_request_error", "max_tokens must be a positive integer"), 400);
     }
 
-    // 4. pinnedSystemPrompt 設定時は system を強制置換
+    // 4. Force-replace system when pinnedSystemPrompt is configured
     const payload: Record<string, unknown> = { ...parsedBody };
     if (config.pinnedSystemPrompt !== null) {
       payload.system = config.pinnedSystemPrompt;
     }
     const effectiveSystem = typeof payload.system === "string" ? payload.system : undefined;
 
-    // 5. 予算プリチェック
+    // 5. Budget precheck
     const worstCost = estimateWorstCost({
       messages: parsedBody.messages,
       system: effectiveSystem,
@@ -224,17 +227,18 @@ export function createApp(deps: AppDeps): Hono {
       globalMonthlyUsd: config.budget.monthlyUsd,
     });
     if (!decision.allowed) {
-      // reason は precheckBudget が allowed: false を返す際は必ず設定される（budget.ts §PrecheckBudgetParams 参照）。
+      // reason is always set when precheckBudget returns allowed: false (see PrecheckBudgetParams in budget.ts).
       const reason = decision.reason ?? "daily_limit";
       const message =
         reason === "monthly_limit" ? "monthly budget limit exceeded" : "daily budget limit exceeded for this token";
-      // A-6: いつ再開できるかを機械可読に伝える。日次 → 次の UTC 深夜、月次 → 翌月 1 日 UTC。
+      // A-6: tell the caller machine-readably when they can retry. Daily ->
+      // next UTC midnight, monthly -> the 1st of next month UTC.
       c.header("Retry-After", String(retryAfterSecondsForReason(reason)));
       finish(429);
       return c.json(errorBody("budget_exceeded_error", message), 429);
     }
 
-    // 6. 上流へ転送
+    // 6. Forward upstream
     const isStreamRequested = payload.stream === true;
     let forwardResult;
     try {
@@ -259,7 +263,7 @@ export function createApp(deps: AppDeps): Hono {
       try {
         await store.addUsage(tokenRecord.id, todayKey, cost);
       } catch {
-        // fail-closed: store.isHealthy() が false になり、以後のリクエストが 503 になる。
+        // fail-closed: store.isHealthy() goes false, so subsequent requests get 503.
       }
     };
 
@@ -267,7 +271,7 @@ export function createApp(deps: AppDeps): Hono {
       const headers = new Headers();
       headers.set("content-type", forwardResult.contentType ?? "text/event-stream");
       const status = forwardResult.status;
-      // SSE は無加工で中継しつつ、usage 記録はバックグラウンドで完了を待つ。
+      // Relay SSE unmodified while accounting finishes recording usage in the background.
       forwardResult.usagePromise.then(recordCost).finally(() => finish(status));
       return new Response(forwardResult.stream, { status, headers });
     }

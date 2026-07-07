@@ -1,7 +1,8 @@
-// store.ts — Store インターフェース + MemoryStore + FileStore
+// store.ts - Store interface + MemoryStore + FileStore
 //
-// トークンレコードと日次会計（usage）を永続化する。FileStore はディスク書き込みに
-// 失敗した場合 isHealthy() が false になる（fail-closed。§5）。プロセスは落とさない。
+// Persists token records and daily accounting (usage). FileStore's
+// isHealthy() goes false if a disk write fails (fail-closed, section 5). The
+// process itself keeps running.
 
 import { dirname } from "node:path";
 import * as fsPromises from "node:fs/promises";
@@ -22,19 +23,19 @@ interface StoreData {
 }
 
 export interface Store {
-  /** 起動時の初期化（FileStore はここでディスクから読み込む）。 */
+  /** Startup initialization (FileStore reads from disk here). */
   init(): Promise<void>;
-  /** 直近の永続化が成功しているか。false の場合、呼び出し側は 503 で遮断する。 */
+  /** Whether the most recent persist succeeded. If false, callers must respond 503. */
   isHealthy(): boolean;
   createToken(record: TokenRecord): Promise<void>;
   listTokens(): Promise<TokenRecord[]>;
   findTokenByHash(tokenHash: string): Promise<TokenRecord | undefined>;
   getToken(id: string): Promise<TokenRecord | undefined>;
-  /** 存在すれば revokedAt を立てて返す。存在しなければ undefined。 */
+  /** Sets revokedAt and returns the record if it exists; undefined otherwise. */
   revokeToken(id: string): Promise<TokenRecord | undefined>;
   addUsage(tokenId: string, dateKey: string, usd: number): Promise<void>;
   getUsageForDate(tokenId: string, dateKey: string): Promise<number>;
-  /** 全トークン合算の当月実績（USD）。月次キルスイッチの判定に使う。 */
+  /** Current month's usage (USD) summed across all tokens. Used for the monthly kill switch. */
   getGlobalMonthlyUsage(monthKey: string): Promise<number>;
 }
 
@@ -50,7 +51,7 @@ function sumMonthlyUsage(usage: StoreData["usage"], monthKey: string): number {
   return total;
 }
 
-/** インメモリ実装。プロセス終了で消える。テスト・お試し用途向け。 */
+/** In-memory implementation. Lost on process exit. For tests and trying things out. */
 export class MemoryStore implements Store {
   private data: StoreData = { tokens: [], usage: {} };
 
@@ -99,7 +100,7 @@ export class MemoryStore implements Store {
   }
 }
 
-/** FileStore が使うファイル操作の最小インターフェース。テストで差し替え可能にするための抽象化。 */
+/** Minimal file-operation interface FileStore depends on, so tests can swap it out. */
 export interface FileStoreFS {
   readFile(path: string): Promise<string>;
   writeFile(path: string, data: string): Promise<void>;
@@ -118,7 +119,7 @@ function isErrnoException(err: unknown): err is NodeJS.ErrnoException {
   return err instanceof Error && "code" in err;
 }
 
-/** JSON ファイルへ永続化するストア。書き込み失敗時は isHealthy() が false になる。 */
+/** Store that persists to a JSON file. isHealthy() goes false when a write fails. */
 export class FileStore implements Store {
   private data: StoreData = { tokens: [], usage: {} };
   private healthy = true;
@@ -143,8 +144,8 @@ export class FileStore implements Store {
       this.healthy = true;
     } catch (err) {
       if (isErrnoException(err) && err.code === "ENOENT") {
-        // 初回起動: 空の状態を作って書き出す。ここで書き込みに失敗するなら
-        // 起動時点で fail-closed（プロセスを起動させない）にする。
+        // First run: create empty state and write it out. If that write
+        // fails, fail-closed at startup (refuse to start the process).
         this.data = { tokens: [], usage: {} };
         await this.persist();
         return;

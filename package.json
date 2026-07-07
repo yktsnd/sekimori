@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "AI プロトタイプを、API キーを晒さず・予算を溶かさず・悪用されずに公開するための、最小のセルフホスト型ゲートウェイ。",
+  "description": "A minimal self-hosted gateway for shipping AI prototypes without exposing your API key, melting your budget, or becoming a free LLM proxy.",
   "scripts": {
     "start": "tsx src/main.ts",
     "dev": "tsx watch src/main.ts",

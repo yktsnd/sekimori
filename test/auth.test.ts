@@ -1,4 +1,4 @@
-// §8-1: 認証 — トークンなし/不正/失効 → 401
+// Design doc 8-1: auth - missing/invalid/revoked token -> 401
 
 import test from "node:test";
 import assert from "node:assert/strict";

@@ -1,6 +1,6 @@
-// A-5: 許可されていない Origin からのリクエストを受けた際、サーバー stdout に 1 行警告を出す。
-// 遮断そのもの（CORS ヘッダを出さないこと）は cors.test.ts で確認済みなので、ここでは
-// 警告ログの有無だけを見る。
+// A-5: a request from a disallowed Origin emits a one-line warning on server
+// stdout. The blocking itself (no CORS headers) is covered by cors.test.ts,
+// so this only checks for the warning log.
 
 import test from "node:test";
 import assert from "node:assert/strict";

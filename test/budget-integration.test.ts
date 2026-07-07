@@ -1,6 +1,7 @@
-// §8-3: 予算 — 日次上限・月次上限それぞれでプリチェック遮断（429）。
-// モック応答の usage が実績として加算されること。
-// A-6: 429 には Retry-After が付き、日次は次の UTC 深夜まで、月次は翌月 1 日 UTC までの秒数になること。
+// Design doc 8-3: budget - the precheck blocks (429) on both the daily and
+// the monthly limit, and the mock response's usage is recorded as actual spend.
+// A-6: the 429 carries Retry-After - seconds until the next UTC midnight for
+// daily, until the 1st of the next month UTC for monthly.
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -54,8 +55,8 @@ test("budget: global monthly killswitch blocks with 429 even with daily headroom
 
   const retryAfter = Number(res.headers.get("retry-after"));
   assert.ok(Number.isFinite(retryAfter), "Retry-After header must be a number");
-  // 月次専用の計算関数（secondsUntilNextUTCMonth）の値と一致すること = 日次計算(secondsUntilNextUTCMidnight)
-  // と取り違えていないことの確認を兼ねる。
+  // Must match the monthly-specific function (secondsUntilNextUTCMonth), which
+  // doubles as a check that it wasn't confused with the daily one (secondsUntilNextUTCMidnight).
   const expected = secondsUntilNextUTCMonth(before);
   assert.ok(Math.abs(retryAfter - expected) <= 2, `expected ~${expected}, got ${retryAfter}`);
 });

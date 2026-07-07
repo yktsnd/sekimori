@@ -1,4 +1,4 @@
-// §8-7: レート制限 — 上限+1 回目が 429
+// Design doc 8-7: rate limit - request N+1 gets 429
 
 import test from "node:test";
 import assert from "node:assert/strict";

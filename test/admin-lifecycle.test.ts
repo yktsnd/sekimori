@@ -1,4 +1,4 @@
-// §8-8: 管理 — トークン発行 → 利用 → 失効 → 401 のライフサイクル
+// Design doc 8-8: admin - token issue -> use -> revoke -> 401 lifecycle
 
 import test from "node:test";
 import assert from "node:assert/strict";

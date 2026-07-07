@@ -1,24 +1,25 @@
-// main.ts — エントリポイント（config 読込 → サーバー起動）
+// main.ts - entry point (load config, then start the server)
 
 import { serve } from "@hono/node-server";
 import { createApp } from "./app.js";
 import { loadConfigFromFile, ConfigError, type SekimoriConfig } from "./config.js";
 import { FileStore, MemoryStore, type Store } from "./store.js";
 
-// A-3: 起動時に有効設定のサマリを表示する。秘密情報（上流 API キー・管理キーの値そのもの）は
-// 一切出さない。ユーザーが「自分の設定（予算・モデル・CORS）が効いているか」を起動直後に
-// 確認できるようにするための表示専用の関数（副作用は console.log のみ）。
+// A-3: print a summary of the effective settings at startup. Never prints
+// secrets (the upstream API key or the admin key values). Lets the operator
+// confirm right after boot that their settings (budget / models / CORS) took
+// effect. Display-only: its only side effect is console.log.
 function formatStartupSummary(config: SekimoriConfig): string[] {
-  const models = Object.keys(config.models).join(", ") || "(なし)";
+  const models = Object.keys(config.models).join(", ") || "(none)";
   const cors =
-    config.cors.allowedOrigins.length > 0 ? config.cors.allowedOrigins.join(", ") : "CORS disabled (allowedOrigins が空)";
+    config.cors.allowedOrigins.length > 0 ? config.cors.allowedOrigins.join(", ") : "CORS disabled (allowedOrigins is empty)";
   const store = config.store.type === "file" ? `file (${config.store.path})` : "memory";
 
   return [
-    "[sekimori] 起動設定サマリ:",
+    "[sekimori] startup settings summary:",
     `[sekimori]   port: ${config.port}`,
     `[sekimori]   upstream.baseUrl: ${config.upstream.baseUrl}`,
-    `[sekimori]   models (許可リスト): ${models}`,
+    `[sekimori]   models (allow list): ${models}`,
     `[sekimori]   budget.monthlyUsd: $${config.budget.monthlyUsd}`,
     `[sekimori]   budget.defaultDailyPerTokenUsd: $${config.budget.defaultDailyPerTokenUsd}`,
     `[sekimori]   rateLimit.requestsPerMinute: ${config.rateLimit.requestsPerMinute}`,
@@ -48,7 +49,7 @@ async function main(): Promise<void> {
   const upstreamApiKey = process.env[config.upstream.apiKeyEnv];
   const adminKey = process.env.SEKIMORI_ADMIN_KEY;
   if (!upstreamApiKey || !adminKey) {
-    // loadConfigFromFile 内で既に検証済みのはずだが、念のため二重に確認する（fail-closed）。
+    // Already validated inside loadConfigFromFile, but double-check here to be safe (fail-closed).
     console.error("[sekimori] required environment variables are missing");
     process.exit(1);
   }

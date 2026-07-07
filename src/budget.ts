@@ -1,12 +1,13 @@
-// budget.ts — コスト見積もり・会計・上限判定
+// budget.ts - cost estimation, accounting, and limit decisions
 //
-// このモジュールは意図的に I/O を持たない純粋関数の集まりにしている（§5）。
-// ストアからの読み書きは呼び出し側（app.ts）の責務。
+// This module is deliberately a collection of pure functions with no I/O
+// (section 5). Reading from / writing to the store is the caller's (app.ts)
+// responsibility.
 
 export interface ModelPricing {
-  /** USD / 100万入力トークン */
+  /** USD per million input tokens */
   inputPerMTok: number;
-  /** USD / 100万出力トークン */
+  /** USD per million output tokens */
   outputPerMTok: number;
 }
 
@@ -18,7 +19,8 @@ export interface UpstreamUsage {
 const MICROS_PER_MILLION = 1_000_000;
 
 /**
- * リクエストの推定入力トークン数（粗い見積もり。目的は桁の防御であって精密さではない）。
+ * Rough estimate of the request's input tokens (the goal is order-of-magnitude
+ * protection, not precision):
  * `ceil(utf8ByteLength(JSON.stringify(messages) + system) / 4)`
  */
 export function estimateInputTokens(messages: unknown, system: string | null | undefined): number {
@@ -27,7 +29,7 @@ export function estimateInputTokens(messages: unknown, system: string | null | u
   return Math.ceil(byteLength / 4);
 }
 
-/** ワーストケースのコスト（プリチェック用）。入力は見積もり、出力は max_tokens を満杯とみなす。 */
+/** Worst-case cost (for the precheck): estimated input plus output at full max_tokens. */
 export function estimateWorstCost(params: {
   messages: unknown;
   system?: string | null;
@@ -40,7 +42,7 @@ export function estimateWorstCost(params: {
   return inputCost + outputCost;
 }
 
-/** 上流の usage から実コストを計算する。 */
+/** Computes the actual cost from upstream-reported usage. */
 export function computeActualCost(usage: UpstreamUsage, pricing: ModelPricing): number {
   const inputCost = (usage.input_tokens / MICROS_PER_MILLION) * pricing.inputPerMTok;
   const outputCost = (usage.output_tokens / MICROS_PER_MILLION) * pricing.outputPerMTok;
@@ -56,19 +58,20 @@ export interface BudgetDecision {
 
 export interface PrecheckBudgetParams {
   worstCost: number;
-  /** そのトークンの当日実績（USD） */
+  /** This token's spend today (USD) */
   tokenTodayUsd: number;
-  /** そのトークンの日次上限（USD） */
+  /** This token's daily limit (USD) */
   tokenDailyUsd: number;
-  /** 全体の当月実績（USD） */
+  /** Global spend this month (USD) */
   globalMonthUsd: number;
-  /** 全体の月次上限（USD、キルスイッチ） */
+  /** Global monthly limit (USD, the kill switch) */
   globalMonthlyUsd: number;
 }
 
 /**
- * 予算プリチェック。月次キルスイッチを先に見て、次にトークンの日次上限を見る。
- * どちらか一方でも超過見込みなら遮断する（fail-closed）。
+ * Budget precheck. Checks the monthly kill switch first, then the token's
+ * daily limit. If either would be exceeded, the request is blocked
+ * (fail-closed).
  */
 export function precheckBudget(params: PrecheckBudgetParams): BudgetDecision {
   if (params.globalMonthUsd + params.worstCost > params.globalMonthlyUsd) {
@@ -84,35 +87,36 @@ function pad2(n: number): string {
   return n < 10 ? `0${n}` : `${n}`;
 }
 
-/** UTC 基準の日付キー（YYYY-MM-DD）。 */
+/** Date key in UTC (YYYY-MM-DD). */
 export function dateKeyUTC(date: Date = new Date()): string {
   return `${date.getUTCFullYear()}-${pad2(date.getUTCMonth() + 1)}-${pad2(date.getUTCDate())}`;
 }
 
-/** UTC 基準の月キー（YYYY-MM）。 */
+/** Month key in UTC (YYYY-MM). */
 export function monthKeyUTC(date: Date = new Date()): string {
   return `${date.getUTCFullYear()}-${pad2(date.getUTCMonth() + 1)}`;
 }
 
-// --- Retry-After 計算（DX レビュー A-6）------------------------------------
+// --- Retry-After computation (DX review A-6) --------------------------------
 //
-// 日次上限は UTC 深夜（次の日の 00:00:00 UTC）に必ず解除される。月次上限は
-// 翌月 1 日 00:00:00 UTC に解除される。どちらも「いつ再開できるか」を機械可読に
-// 伝えるための純粋関数として実装し、app.ts からは `Date` を渡すだけで使えるようにする。
+// The daily limit always resets at UTC midnight (00:00:00 UTC the next day);
+// the monthly limit resets at 00:00:00 UTC on the 1st of the next month.
+// Both are pure functions that tell the caller machine-readably when it can
+// retry; app.ts just passes in a `Date`.
 
-/** 次の UTC 深夜（翌日 00:00:00 UTC）までの秒数（切り上げ、最小 1）。 */
+/** Seconds until the next UTC midnight (00:00:00 UTC the next day), rounded up, minimum 1. */
 export function secondsUntilNextUTCMidnight(now: Date = new Date()): number {
   const next = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0, 0);
   return Math.max(1, Math.ceil((next - now.getTime()) / 1000));
 }
 
-/** 翌月 1 日 00:00:00 UTC までの秒数（切り上げ、最小 1）。年またぎも `Date.UTC` の桁溢れ正規化に任せる。 */
+/** Seconds until 00:00:00 UTC on the 1st of the next month, rounded up, minimum 1. Year rollover is left to `Date.UTC`'s overflow normalization. */
 export function secondsUntilNextUTCMonth(now: Date = new Date()): number {
   const next = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0, 0);
   return Math.max(1, Math.ceil((next - now.getTime()) / 1000));
 }
 
-/** 予算超過理由から Retry-After 秒数を求める（日次 → 次の UTC 深夜、月次 → 翌月 1 日 UTC）。 */
+/** Maps a budget-rejection reason to Retry-After seconds (daily -> next UTC midnight, monthly -> 1st of next month UTC). */
 export function retryAfterSecondsForReason(reason: BudgetRejectReason, now: Date = new Date()): number {
   return reason === "monthly_limit" ? secondsUntilNextUTCMonth(now) : secondsUntilNextUTCMidnight(now);
 }

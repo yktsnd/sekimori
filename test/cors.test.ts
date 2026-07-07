@@ -1,4 +1,4 @@
-// §7: CORS — allowedOrigins に列挙された Origin のみ許可（* を暗黙で出さない）
+// Section 7: CORS - only Origins listed in allowedOrigins are allowed (no implicit *)
 
 import test from "node:test";
 import assert from "node:assert/strict";

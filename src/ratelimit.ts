@@ -1,10 +1,10 @@
-// ratelimit.ts — 固定ウィンドウのレート制限（トークンごと）
+// ratelimit.ts - fixed-window rate limiting, per token
 //
-// 単一プロセス前提のためインメモリでよい（§7）。
+// In-memory is fine since sekimori is single-process by design (section 7).
 
 export interface RateLimitCheck {
   allowed: boolean;
-  /** 拒否時、次のウィンドウまでの秒数（切り上げ、最小 1）。 */
+  /** When rejected, seconds until the next window (rounded up, minimum 1). */
   retryAfterSeconds?: number;
 }
 
@@ -20,7 +20,7 @@ export class RateLimiter {
 
   constructor(private readonly requestsPerMinute: number) {}
 
-  /** トークンの今回のリクエストを許可するかどうかを判定し、カウントする。 */
+  /** Decides whether to allow this request for the token, and counts it. */
   check(tokenId: string, now: number = Date.now()): RateLimitCheck {
     const windowStart = Math.floor(now / WINDOW_MS) * WINDOW_MS;
     const entry = this.windows.get(tokenId);

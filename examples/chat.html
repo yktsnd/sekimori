@@ -1,8 +1,8 @@
 <!doctype html>
-<html lang="ja">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>sekimori リファレンスクライアント</title>
+<title>sekimori reference client</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
   :root { color-scheme: light; }
@@ -43,16 +43,18 @@
 
 <script>
 // ============================================================================
-// ここだけ書き換えれば自分のアプリになる(エンドユーザーはこの下を触らない)。
+// This block is all you need to edit to make this your own app (end users
+// never touch anything below it).
 //
-// - baseUrl / model はアプリの開発者が決めるものであり、エンドユーザーには見せない・
-//   入力させない。エンドユーザーが持つのは招待トークンだけ。
-// - このファイルは「コピーして自分のアプリの出発点にするもの」として設計されている
-//   (依存ゼロ・1 ファイル・ビルドなし)。
+// - baseUrl / model are the app developer's choices; never show them to end
+//   users or ask them to type them in. The only thing an end user ever has
+//   is their invite token.
+// - This file is designed to be copied as the starting point of your own app
+//   (zero dependencies, one file, no build step).
 const CONFIG = {
   baseUrl: "http://localhost:8787",
   model: "claude-haiku-4-5-20251001",
-  appName: "sekimori リファレンスクライアント",
+  appName: "sekimori reference client",
   maxTokens: 512,
 };
 // ============================================================================
@@ -60,32 +62,33 @@ const CONFIG = {
 
   <h1 id="appTitle"></h1>
   <p class="hint">
-    sekimori 経由で招待トークンを使って POST /v1/messages(stream: true)を叩くだけの、依存ゼロの
-    デモページです。CORS の都合上、file:// で直接開くのではなく簡易 HTTP サーバーで配信してください
-    (例: <code>python3 -m http.server 8000</code> をこのディレクトリで実行し、sekimori 側の
-    <code>cors.allowedOrigins</code> に配信元を追加する)。
+    A zero-dependency demo page that just POSTs /v1/messages (stream: true) through
+    sekimori using an invite token. Because of CORS, don't open it via file:// -
+    serve it from a simple HTTP server instead (e.g. run
+    <code>python3 -m http.server 8000</code> in this directory and add the serving
+    origin to sekimori's <code>cors.allowedOrigins</code>).
   </p>
 
   <div id="tokenGate">
-    <label for="tokenInput">招待トークン(smk_...)を入力してください</label>
+    <label for="tokenInput">Enter your invite token (smk_...)</label>
     <input id="tokenInput" placeholder="smk_..." autocomplete="off" />
-    <button id="saveToken">保存して開始</button>
+    <button id="saveToken">Save and start</button>
   </div>
 
   <div id="chatArea" hidden>
     <div class="usage-bar">
-      <span id="usageText">今日の利用: 取得中…</span>
-      <button class="change-token" id="changeToken" type="button">トークンを変更</button>
+      <span id="usageText">Today's usage: loading...</span>
+      <button class="change-token" id="changeToken" type="button">Change token</button>
     </div>
 
     <div id="history"></div>
 
     <div class="composer">
-      <textarea id="input" placeholder="メッセージを入力(Shift+Enter で改行、Enter で送信)"></textarea>
-      <button id="send">送信</button>
+      <textarea id="input" placeholder="Type a message (Shift+Enter for a new line, Enter to send)"></textarea>
+      <button id="send">Send</button>
     </div>
     <details class="raw" id="rawDetails" hidden>
-      <summary>直近のエラー詳細(開発者向け)</summary>
+      <summary>Last error details (for developers)</summary>
       <pre id="rawText"></pre>
     </details>
   </div>
@@ -109,7 +112,7 @@ const CONFIG = {
   const rawDetails = $("rawDetails");
   const rawText = $("rawText");
 
-  /** ページ内で保持する会話履歴。リロードで消えてよい(仕様どおり)。 */
+  /** In-page conversation history. Lost on reload, by design. */
   let messages = [];
 
   function getToken() {
@@ -173,40 +176,40 @@ const CONFIG = {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.status === 401) {
-        usageText.textContent = "招待トークンが無効です";
+        usageText.textContent = "Your invite token is invalid";
         return;
       }
       if (!res.ok) {
-        usageText.textContent = "利用状況を取得できませんでした";
+        usageText.textContent = "Could not load usage";
         return;
       }
       const usage = await res.json();
-      usageText.textContent = `今日の利用: ${fmtUsd(usage.todayUsd)} / ${fmtUsd(usage.dailyLimitUsd)}`;
+      usageText.textContent = `Today's usage: ${fmtUsd(usage.todayUsd)} / ${fmtUsd(usage.dailyLimitUsd)}`;
     } catch {
-      usageText.textContent = "利用状況を取得できませんでした(通信エラー)";
+      usageText.textContent = "Could not load usage (network error)";
     }
   }
 
-  /** error.type に応じた利用者向けの文言。生の HTTP ステータスや JSON は既定で見せない。 */
+  /** User-facing wording per error.type. Raw HTTP statuses and JSON are hidden by default. */
   function friendlyErrorMessage(errorType, retryAfterSeconds) {
     switch (errorType) {
       case "authentication_error":
-        return "招待トークンが無効です。配布元に確認してください。";
+        return "Your invite token is invalid. Please contact whoever gave it to you.";
       case "budget_exceeded_error": {
         if (retryAfterSeconds != null) {
           const hours = Math.max(1, Math.ceil(retryAfterSeconds / 3600));
-          return `今日の利用上限に達しました。あと約${hours}時間で再開します。`;
+          return `You've hit today's usage limit. It resets in about ${hours} hour${hours === 1 ? "" : "s"}.`;
         }
-        return "利用上限に達しました。しばらくしてからもう一度お試しください。";
+        return "You've hit the usage limit. Please try again later.";
       }
       case "rate_limit_error": {
         if (retryAfterSeconds != null) {
-          return `送信が速すぎます。${retryAfterSeconds}秒待ってください。`;
+          return `You're sending messages too fast. Please wait ${retryAfterSeconds} seconds.`;
         }
-        return "送信が速すぎます。少し待ってからもう一度お試しください。";
+        return "You're sending messages too fast. Please wait a moment and try again.";
       }
       default:
-        return "接続できません。運営者に連絡してください。";
+        return "Cannot connect. Please contact the operator.";
     }
   }
 
@@ -226,7 +229,7 @@ const CONFIG = {
       const parsed = JSON.parse(bodyText);
       errorType = parsed?.error?.type ?? null;
     } catch {
-      // ボディが JSON でない場合は通信エラー扱いにする
+      // Body isn't JSON: treat it as a connection problem
     }
 
     appendSystemError(
@@ -282,7 +285,7 @@ const CONFIG = {
       return;
     }
 
-    // ストリーミング応答をページ内に少しずつ描画しつつ、完了後に会話履歴へ確定する。
+    // Render the streaming response incrementally, then commit it to the history when done.
     const assistantDiv = document.createElement("div");
     assistantDiv.className = "msg assistant";
     historyEl.appendChild(assistantDiv);
@@ -313,7 +316,7 @@ const CONFIG = {
               historyEl.scrollTop = historyEl.scrollHeight;
             }
           } catch {
-            // パースできない行はそのままスキップ
+            // Skip lines that don't parse
           }
         }
       }
@@ -350,7 +353,7 @@ const CONFIG = {
     }
   });
 
-  // 初期表示: トークンが localStorage にあればチャット画面、なければ入力画面。
+  // Initial view: chat if a token is in localStorage, token entry otherwise.
   if (getToken()) {
     showChatArea();
   } else {

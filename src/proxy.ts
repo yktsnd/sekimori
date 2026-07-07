@@ -1,9 +1,10 @@
-// proxy.ts — 上流（Anthropic Messages API）への転送と usage 抽出
+// proxy.ts - forwarding to the upstream (Anthropic Messages API) and usage extraction
 //
-// - ヘッダはクライアントのものを素通ししない。サーバー側で x-api-key / anthropic-version /
-//   content-type を構築する（§6）。
-// - 非ストリームは JSON をそのまま返す。
-// - ストリームは SSE バイト列を無加工で中継しつつ、複製を行単位でパースして usage を抽出する。
+// - Client headers are never passed through as-is; the server builds
+//   x-api-key / anthropic-version / content-type itself (section 6).
+// - Non-streaming responses are returned as JSON, unmodified.
+// - Streaming responses relay the raw SSE bytes unmodified while a duplicate
+//   is parsed line-by-line to extract usage.
 
 export interface UpstreamTarget {
   baseUrl: string;
@@ -19,17 +20,17 @@ export interface ForwardResult {
   status: number;
   contentType: string | null;
   isStream: boolean;
-  /** 非ストリーム時のみ設定。上流のレスポンスボディをそのまま返すための生テキスト。 */
+  /** Set only for non-streaming responses: the raw upstream response body text, returned as-is. */
   bodyText?: string;
-  /** ストリーム時のみ設定。クライアントへ無加工で中継するための ReadableStream。 */
+  /** Set only for streaming responses: the ReadableStream relayed to the client unmodified. */
   stream?: ReadableStream<Uint8Array>;
-  /** usage 抽出の結果。取得できなかった場合は null（呼び出し側は worstCost を代わりに計上する）。 */
+  /** Result of usage extraction. null if it couldn't be determined (the caller falls back to worstCost). */
   usagePromise: Promise<ExtractedUsage | null>;
 }
 
 const ANTHROPIC_VERSION = "2023-06-01";
 
-/** 上流の Anthropic Messages API へ転送する。 */
+/** Forwards a request to the upstream Anthropic Messages API. */
 export async function forwardMessages(
   upstream: UpstreamTarget,
   payload: unknown,
@@ -83,14 +84,14 @@ function extractUsageFromJson(bodyText: string): ExtractedUsage | null {
       }
     }
   } catch {
-    // JSON として読めない場合は usage なしとして扱う（worstCost が計上される）。
+    // If the body isn't valid JSON, treat usage as unavailable (worstCost is charged instead).
   }
   return null;
 }
 
 /**
- * SSE ストリームを行単位でパースし、`message_start` の input_tokens と
- * 最後の `message_delta` の output_tokens から usage を組み立てる。
+ * Parses an SSE stream line by line and assembles usage from the
+ * `message_start` input_tokens and the last `message_delta` output_tokens.
  */
 async function extractUsageFromSSE(stream: ReadableStream<Uint8Array>): Promise<ExtractedUsage | null> {
   const reader = stream.getReader();
@@ -144,8 +145,8 @@ async function extractUsageFromSSE(stream: ReadableStream<Uint8Array>): Promise<
     }
     if (buffer.length > 0) handleLine(buffer);
   } catch {
-    // 読み取り中のエラーはここで諦める。usage は null のまま返し、
-    // 呼び出し側が worstCost を代わりに計上する（fail-closed）。
+    // Give up on read errors here. usage stays null, and the caller falls
+    // back to charging worstCost (fail-closed).
   }
 
   if (inputTokens === undefined || outputTokens === undefined) return null;

@@ -1,4 +1,4 @@
-// test-app.ts — テスト用の config / app 組み立てヘルパー
+// test-app.ts - helpers for assembling a config / app in tests
 
 import type { Hono } from "hono";
 import { createApp } from "../../src/app.js";
@@ -80,7 +80,7 @@ export async function getUsage(app: Hono, token: string): Promise<{ todayUsd: nu
   return (await res.json()) as { todayUsd: number; dailyLimitUsd: number; monthUsd: number; monthlyLimitUsd: number };
 }
 
-/** 条件が満たされるまでポーリングする。ストリーミング終了後の非同期会計処理待ち等に使う。 */
+/** Polls until the condition holds. Used e.g. to wait for the async accounting that runs after a stream ends. */
 export async function waitFor(check: () => Promise<boolean>, timeoutMs = 2000, intervalMs = 10): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {

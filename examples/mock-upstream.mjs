@@ -1,15 +1,16 @@
 #!/usr/bin/env node
-// mock-upstream.mjs — オフラインデモ用の擬似 Anthropic Messages API サーバー(依存ゼロ)。
+// mock-upstream.mjs - fake Anthropic Messages API server for offline demos (zero dependencies).
 //
-// 実際の Anthropic API キーがなくても sekimori のクイックスタートを試せるようにするための
-// 最小限のスタブ。`POST /v1/messages` のみをサポートし、リクエストの `stream` フィールドに
-// 応じて非ストリーム JSON か SSE を返す。
+// A minimal stub so the sekimori quickstart can be tried without a real
+// Anthropic API key. Supports only `POST /v1/messages`, returning either
+// non-streaming JSON or SSE depending on the request's `stream` field.
 //
-// 使い方: node examples/mock-upstream.mjs [port=9999]
+// Usage: node examples/mock-upstream.mjs [port=9999]
 //
-// ../test/helpers/mock-upstream.ts とは別実装(意図的)。あちらは node:test から import して
-// 使う TypeScript のテストハーネスで、こちらはビルド不要で手元から直接叩ける依存ゼロの
-// スタンドアロン .mjs スクリプト。用途が違うため統合していない。
+// Deliberately a separate implementation from ../test/helpers/mock-upstream.ts:
+// that one is a TypeScript test harness imported from node:test, while this is
+// a zero-dependency standalone .mjs script you can run directly with no build
+// step. Different purposes, so not unified.
 
 import { createServer } from "node:http";
 
@@ -82,7 +83,7 @@ const server = createServer(async (req, res) => {
     });
     send("content_block_start", { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } });
 
-    // 数チャンクに分けて少しずつ配信し、本物のストリーミングらしさを出す。
+    // Deliver in several small chunks to feel like real streaming.
     const words = replyText.split(" ");
     for (const word of words) {
       send("content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: `${word} ` } });

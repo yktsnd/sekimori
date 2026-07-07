@@ -1,4 +1,4 @@
-// §8-2: 許可リスト — 未知モデル → 403（価格未設定モデルは通らないことの確認を兼ねる）
+// Design doc 8-2: allow list - unknown model -> 403 (doubles as proof that unpriced models can't pass)
 
 import test from "node:test";
 import assert from "node:assert/strict";

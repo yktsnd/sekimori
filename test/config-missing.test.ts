@@ -1,5 +1,5 @@
-// A-2: config ファイル不在時、example のコピー方法と README の該当節を示す案内文になっていること
-// （そっけない I/O エラーメッセージのままにしない）。
+// A-2: when the config file is missing, the ConfigError must point at how to
+// copy the example and the relevant README section (not a bare I/O error).
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -33,7 +33,7 @@ test("config: JSON parse error keeps the plain (non-ENOENT) message form", (t) =
 
   assert.throws(() => loadConfigFromFile(badPath), (err: unknown) => {
     assert.ok(err instanceof ConfigError);
-    assert.match((err as Error).message, /不正な JSON/);
+    assert.match((err as Error).message, /invalid JSON/);
     return true;
   });
 });

@@ -1,4 +1,4 @@
-// budget.ts の純粋関数の単体テスト（§5: I/O を持たないので単体テスト対象にする）
+// Unit tests for the pure functions in budget.ts (section 5: no I/O, so they get unit tests)
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -93,11 +93,11 @@ test("dateKeyUTC / monthKeyUTC: UTC formatting, not local time", () => {
   assert.equal(monthKeyUTC(d), "2026-07");
 });
 
-// --- Retry-After 計算（A-6）--------------------------------------------------
+// --- Retry-After computation (A-6) ------------------------------------------
 
 test("secondsUntilNextUTCMidnight: mid-day gives seconds to 00:00 UTC the next day", () => {
   const now = new Date(Date.UTC(2026, 6, 6, 10, 0, 0, 0)); // 2026-07-06T10:00:00Z
-  const expected = 14 * 3600; // 10:00 -> 24:00 は 14 時間
+  const expected = 14 * 3600; // 10:00 -> 24:00 is 14 hours
   assert.equal(secondsUntilNextUTCMidnight(now), expected);
 });
 

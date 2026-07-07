@@ -1,4 +1,4 @@
-// §8-4: ストリーミング — SSE が改変なくクライアントに届き、かつ usage が会計されること
+// Design doc 8-4: streaming - SSE reaches the client unmodified, and usage is accounted
 
 import test from "node:test";
 import assert from "node:assert/strict";

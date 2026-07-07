@@ -1,4 +1,4 @@
-// config.ts の検証ルール（§2）: 違反時は起動を失敗させる（fail-closed）
+// Validation rules in config.ts (section 2): violations fail startup (fail-closed)
 
 import test from "node:test";
 import assert from "node:assert/strict";

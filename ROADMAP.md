@@ -23,11 +23,11 @@ Sonnet 5).
 Goal (a) and (c). Everything here is verifiable inside the repo.
 
 - [x] Sustainability review: ideal state, root causes, goals
-- [ ] Docs restructured around reader tasks; English as the primary language
+- [x] Docs restructured around reader tasks; English as the primary language
       (README landing + `README.ja.md`; current-truth references in `docs/`;
       round records frozen in `docs/history/`)
-- [ ] Governance docs: CONTRIBUTING, SECURITY, CHANGELOG, issue/PR templates
-- [ ] English-only source: comments, log output, CLI messages, reference
+- [x] Governance docs: CONTRIBUTING, SECURITY, CHANGELOG, issue/PR templates
+- [x] English-only source: comments, log output, CLI messages, reference
       client UI text
 - [x] npm packaging: `tsc` build to `dist/`, `sekimori` bin, package
       metadata; `npx` from a packed tarball verified as a smoke test

@@ -32,7 +32,7 @@ Goal (a) and (c). Everything here is verifiable inside the repo.
 - [x] npm packaging: `tsc` build to `dist/`, `sekimori` bin, package
       metadata; `npx` from a packed tarball verified as a smoke test
       (actual registry publish is a v0.3 human gate)
-- [ ] `sekimori init`: interactive config generator (zero new dependencies),
+- [x] `sekimori init`: interactive config generator (zero new dependencies),
       so the first five minutes never involve hand-editing JSON
 - [ ] Minimal CI (GitHub Actions): typecheck + tests + offline demo +
       pack/boot smoke; fast enough that it never gets disabled

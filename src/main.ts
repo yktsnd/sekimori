@@ -5,6 +5,7 @@ import { serve } from "@hono/node-server";
 import { createApp } from "./app.js";
 import { loadConfigFromFile, ConfigError, type SekimoriConfig } from "./config.js";
 import { FileStore, MemoryStore, type Store } from "./store.js";
+import { runInit } from "./init.js";
 
 // A-3: print a summary of the effective settings at startup. Never prints
 // secrets (the upstream API key or the admin key values). Lets the operator
@@ -64,13 +65,25 @@ async function runServe(configPath: string): Promise<void> {
   });
 }
 
-// CLI dispatch. Today there is a single implicit command ("serve"): the sole
-// positional argument, if present, is a config file path. This function is
-// the seam for future subcommands (e.g. `sekimori init`, issue #7) - add a
-// branch here for a recognized args[0] before it falls through to being
-// treated as a config path, so `serve` behavior never has to change.
+// CLI dispatch. Today there are two commands: the implicit default ("serve"),
+// where the sole positional argument, if present, is a config file path; and
+// `init` (issue #7), an interactive config generator. This function is the
+// seam for future subcommands - add a branch here for a recognized args[0]
+// before it falls through to being treated as a config path, so `serve`
+// behavior never has to change.
 async function run(argv: string[]): Promise<void> {
   const args = argv.slice(2);
+
+  if (args[0] === "init") {
+    const exitCode = await runInit(args.slice(1), {
+      input: process.stdin,
+      output: process.stdout,
+      isTTY: process.stdin.isTTY === true,
+    });
+    process.exit(exitCode);
+    return;
+  }
+
   const configPath = args[0] ?? "./sekimori.config.json";
   await runServe(configPath);
 }

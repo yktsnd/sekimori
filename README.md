@@ -56,7 +56,10 @@ node examples/mock-upstream.mjs 9999
 In another terminal:
 
 ```bash
-# 2. create a config pointed at the stub and start sekimori
+# 2. create a config: either the interactive generator (recommended - never
+#    involves hand-editing JSON) or copy the example and edit it by hand
+npx tsx src/main.ts init          # from a clone (today); `npx sekimori init` once packaged
+# or:
 cp sekimori.config.example.json sekimori.config.json
 #    edit sekimori.config.json: set upstream.baseUrl to "http://localhost:9999"
 

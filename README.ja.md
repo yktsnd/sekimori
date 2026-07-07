@@ -37,7 +37,10 @@ node examples/mock-upstream.mjs 9999
 別ターミナルで:
 
 ```bash
-# 2. スタブに向けた config を用意して sekimori を起動
+# 2. config を用意して sekimori を起動: 対話式ジェネレータ(推奨。JSON を手編集せずに済む)か、
+#    example をコピーして手編集するかを選べる
+npx tsx src/main.ts init          # クローンから実行する場合(現在)。パッケージ公開後は `npx sekimori init`
+# または:
 cp sekimori.config.example.json sekimori.config.json
 #    sekimori.config.json の upstream.baseUrl を "http://localhost:9999" に変更
 

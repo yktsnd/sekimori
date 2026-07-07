@@ -7,6 +7,13 @@ All notable changes to sekimori are documented here. The format follows
 ## [Unreleased] — v0.2 "distribution-ready"
 
 ### Added
+- `sekimori init [path] [--force] [--yes]`: interactive config generator
+  (issue #7), zero new dependencies (`node:readline/promises`). Prompts for
+  every setting with defaults shown in `[brackets]`, validates answers as
+  you go, and runs the generated config through the real `validateConfig`
+  before writing so it can never produce a config that startup would
+  reject; refuses to overwrite an existing file without `--force`; requires
+  `--yes` when stdin is not a TTY so it never hangs in pipes/CI.
 - Sustainability review, roadmap, and governance docs (CONTRIBUTING,
   SECURITY, issue/PR templates)
 - Current-truth reference docs: `docs/configuration.md`, `docs/api.md`,

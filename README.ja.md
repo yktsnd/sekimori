@@ -1,5 +1,7 @@
 # sekimori(関守)
 
+[![CI](https://github.com/yktsnd/sekimori/actions/workflows/ci.yml/badge.svg)](https://github.com/yktsnd/sekimori/actions/workflows/ci.yml)
+
 > AI プロトタイプを、API キーを晒さず・予算を溶かさず・悪用されずに公開するための、最小のセルフホスト型ゲートウェイ。
 
 **「週末に作った AI プロトタイプを、友人・SNS・β ユーザーに触らせたい」瞬間のための道具。** あなたのアプリと Anthropic Messages API の間に立ち、**設定ファイル 1 枚 + プロセス 1 個**で、キー秘匿・確実に効く予算上限・招待トークン認証・レート制限・system プロンプトのサーバー側固定・SSE 素通しを提供する。

@@ -24,6 +24,11 @@ All notable changes to sekimori are documented here. The format follows
   `npm pack` -> install -> boot -> HTTP round trip against a packed tarball.
   Version is `0.2.0-dev.0`; the registry publish itself remains a v0.3
   human-gated step.
+- CI (issue #8): `.github/workflows/ci.yml` runs on push and pull_request
+  across Node 20/22 (`ubuntu-latest` only) — `npm ci`, typecheck, tests, the
+  offline `examples/demo.sh` scenario, and `npm run test:pack`; fully
+  offline, no secrets, 10-minute timeout, concurrent runs on the same ref
+  cancelled.
 
 ### Changed
 - English is now the primary language (README landing + `README.ja.md`)

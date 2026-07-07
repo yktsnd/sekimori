@@ -1,5 +1,7 @@
 # sekimori (関守)
 
+[![CI](https://github.com/yktsnd/sekimori/actions/workflows/ci.yml/badge.svg)](https://github.com/yktsnd/sekimori/actions/workflows/ci.yml)
+
 > A minimal self-hosted gateway for shipping AI prototypes without exposing
 > your API key, melting your budget, or becoming a free LLM proxy.
 

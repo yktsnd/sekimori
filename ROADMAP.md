@@ -34,7 +34,7 @@ Goal (a) and (c). Everything here is verifiable inside the repo.
       (actual registry publish is a v0.3 human gate)
 - [x] `sekimori init`: interactive config generator (zero new dependencies),
       so the first five minutes never involve hand-editing JSON
-- [ ] Minimal CI (GitHub Actions): typecheck + tests + offline demo +
+- [x] Minimal CI (GitHub Actions): typecheck + tests + offline demo +
       pack/boot smoke; fast enough that it never gets disabled
 
 ## v0.3 — "public release" (human gates)

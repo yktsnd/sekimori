@@ -93,3 +93,26 @@ export function dateKeyUTC(date: Date = new Date()): string {
 export function monthKeyUTC(date: Date = new Date()): string {
   return `${date.getUTCFullYear()}-${pad2(date.getUTCMonth() + 1)}`;
 }
+
+// --- Retry-After 計算（DX レビュー A-6）------------------------------------
+//
+// 日次上限は UTC 深夜（次の日の 00:00:00 UTC）に必ず解除される。月次上限は
+// 翌月 1 日 00:00:00 UTC に解除される。どちらも「いつ再開できるか」を機械可読に
+// 伝えるための純粋関数として実装し、app.ts からは `Date` を渡すだけで使えるようにする。
+
+/** 次の UTC 深夜（翌日 00:00:00 UTC）までの秒数（切り上げ、最小 1）。 */
+export function secondsUntilNextUTCMidnight(now: Date = new Date()): number {
+  const next = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0, 0);
+  return Math.max(1, Math.ceil((next - now.getTime()) / 1000));
+}
+
+/** 翌月 1 日 00:00:00 UTC までの秒数（切り上げ、最小 1）。年またぎも `Date.UTC` の桁溢れ正規化に任せる。 */
+export function secondsUntilNextUTCMonth(now: Date = new Date()): number {
+  const next = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0, 0);
+  return Math.max(1, Math.ceil((next - now.getTime()) / 1000));
+}
+
+/** 予算超過理由から Retry-After 秒数を求める（日次 → 次の UTC 深夜、月次 → 翌月 1 日 UTC）。 */
+export function retryAfterSecondsForReason(reason: BudgetRejectReason, now: Date = new Date()): number {
+  return reason === "monthly_limit" ? secondsUntilNextUTCMonth(now) : secondsUntilNextUTCMidnight(now);
+}

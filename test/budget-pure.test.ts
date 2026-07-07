@@ -9,6 +9,9 @@ import {
   estimateWorstCost,
   monthKeyUTC,
   precheckBudget,
+  retryAfterSecondsForReason,
+  secondsUntilNextUTCMidnight,
+  secondsUntilNextUTCMonth,
 } from "../src/budget.js";
 
 test("estimateInputTokens: ceil(utf8ByteLength(JSON.stringify(messages)+system)/4)", () => {
@@ -88,4 +91,53 @@ test("dateKeyUTC / monthKeyUTC: UTC formatting, not local time", () => {
   const d = new Date(Date.UTC(2026, 6, 6, 23, 59));
   assert.equal(dateKeyUTC(d), "2026-07-06");
   assert.equal(monthKeyUTC(d), "2026-07");
+});
+
+// --- Retry-After 計算（A-6）--------------------------------------------------
+
+test("secondsUntilNextUTCMidnight: mid-day gives seconds to 00:00 UTC the next day", () => {
+  const now = new Date(Date.UTC(2026, 6, 6, 10, 0, 0, 0)); // 2026-07-06T10:00:00Z
+  const expected = 14 * 3600; // 10:00 -> 24:00 は 14 時間
+  assert.equal(secondsUntilNextUTCMidnight(now), expected);
+});
+
+test("secondsUntilNextUTCMidnight: one second before midnight rounds up to 1", () => {
+  const now = new Date(Date.UTC(2026, 6, 6, 23, 59, 59, 500));
+  assert.equal(secondsUntilNextUTCMidnight(now), 1);
+});
+
+test("secondsUntilNextUTCMidnight: just after midnight gives ~86400 seconds (rolls into the following day)", () => {
+  const now = new Date(Date.UTC(2026, 6, 6, 0, 0, 0, 0));
+  assert.equal(secondsUntilNextUTCMidnight(now), 86400);
+});
+
+test("secondsUntilNextUTCMonth: mid-month gives seconds to the 1st of next month 00:00 UTC", () => {
+  const now = new Date(Date.UTC(2026, 6, 15, 0, 0, 0, 0)); // 2026-07-15T00:00:00Z
+  const next = Date.UTC(2026, 7, 1, 0, 0, 0, 0); // 2026-08-01T00:00:00Z
+  const expected = Math.ceil((next - now.getTime()) / 1000);
+  assert.equal(secondsUntilNextUTCMonth(now), expected);
+});
+
+test("secondsUntilNextUTCMonth: December rolls over into January of the next year", () => {
+  const now = new Date(Date.UTC(2026, 11, 31, 12, 0, 0, 0)); // 2026-12-31T12:00:00Z
+  const next = Date.UTC(2027, 0, 1, 0, 0, 0, 0); // 2027-01-01T00:00:00Z
+  const expected = Math.ceil((next - now.getTime()) / 1000);
+  assert.equal(secondsUntilNextUTCMonth(now), expected);
+  assert.equal(expected, 12 * 3600);
+});
+
+test("secondsUntilNextUTCMonth: never returns less than 1 even right at the boundary", () => {
+  const now = new Date(Date.UTC(2026, 7, 1, 0, 0, 0, 0)); // exactly on the 1st
+  const next = Date.UTC(2026, 8, 1, 0, 0, 0, 0);
+  assert.equal(secondsUntilNextUTCMonth(now), Math.ceil((next - now.getTime()) / 1000));
+});
+
+test("retryAfterSecondsForReason: dispatches daily_limit to next UTC midnight", () => {
+  const now = new Date(Date.UTC(2026, 6, 6, 22, 0, 0, 0));
+  assert.equal(retryAfterSecondsForReason("daily_limit", now), secondsUntilNextUTCMidnight(now));
+});
+
+test("retryAfterSecondsForReason: dispatches monthly_limit to the 1st of next UTC month", () => {
+  const now = new Date(Date.UTC(2026, 6, 6, 22, 0, 0, 0));
+  assert.equal(retryAfterSecondsForReason("monthly_limit", now), secondsUntilNextUTCMonth(now));
 });

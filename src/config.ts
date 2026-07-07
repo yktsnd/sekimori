@@ -44,12 +44,31 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function isErrnoException(err: unknown): err is NodeJS.ErrnoException {
+  return err instanceof Error && "code" in err;
+}
+
 /** ファイルパスから config を読み込み、検証する。 */
 export function loadConfigFromFile(path: string): SekimoriConfig {
   let raw: string;
   try {
     raw = readFileSync(path, "utf8");
   } catch (err) {
+    if (isErrnoException(err) && err.code === "ENOENT") {
+      // A-2: config を用意し忘れて起動した際、example のコピー方法と README の該当節を示す
+      // 案内文にする（そっけない I/O エラーメッセージのままにしない）。
+      throw new ConfigError(
+        [
+          `config ファイルが見つかりません: ${path}`,
+          "",
+          "  次の手順で作成してください:",
+          `    cp sekimori.config.example.json ${path}`,
+          "    (upstream.baseUrl / models の価格などを自分の環境に合わせて編集してください)",
+          "",
+          "  詳細は README.md の「オフライン・クイックスタート」を参照してください。",
+        ].join("\n"),
+      );
+    }
     throw new ConfigError(`config ファイルが読み込めません: ${path} (${(err as Error).message})`);
   }
 

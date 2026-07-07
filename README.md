@@ -6,9 +6,21 @@
 
 **単一プロセス前提**: sekimori は水平スケールに対応していない。レート制限・トークンストア(memory 時)はプロセス内メモリで完結する設計であり、複数インスタンスを同時に立てて共有することはできない。個人が身内に公開する規模(数十〜数千リクエスト/日程度)を想定している。
 
+## まず 1 コマンドで全部見る
+
+sekimori が守っている 6 つの瞬間(トークンなし侵入の遮断・予算超過・レート制限・許可外モデル拒否・トークン失効・その間も正当な利用者は普通に使える)を、実 API キーなし・課金ゼロで 1 コマンドのまま通しで見られる。
+
+```bash
+cd projects/sekimori
+npm install        # 初回のみ
+bash examples/demo.sh
+```
+
+擬似上流と sekimori 本体を一時ディレクトリの config で起動し、`alice`(普通の利用者)と `mallory`(すぐ上限に達する設定の利用者)のトークンで一通りのシナリオを実行したあと、必ず後片付けして終了する。各ステップは期待 HTTP ステータスを検証しており、1 つでも不一致なら非ゼロ終了する(スモークテストを兼ねる)。詳しい設計は [docs/04-demo-design.md](docs/04-demo-design.md) を参照。実 API を使うおまけモードもある: `SEKIMORI_DEMO_REAL=1 ANTHROPIC_API_KEY=sk-... bash examples/demo.sh`(既定は必ずオフライン)。
+
 ## オフライン・クイックスタート
 
-実 API キーなしで、依存ゼロの擬似 Anthropic サーバーに向けて一通り動かせる。
+`demo.sh` は自動シナリオだが、ここでは自分の手で `curl` を叩きながら一つずつ確認できる。実 API キーなしで、依存ゼロの擬似 Anthropic サーバーに向けて一通り動かせる。
 
 ```bash
 cd projects/sekimori
@@ -55,10 +67,24 @@ curl -sN -X POST http://localhost:8787/v1/messages \
 ```bash
 # 4. examples/chat.html をブラウザで試す(file:// だと CORS で弾かれるので簡易サーバーで配信する)
 python3 -m http.server 8000 --directory examples
-# ブラウザで http://localhost:8000/chat.html を開き、ベース URL・招待トークン・モデル名を入力して送信
+# ブラウザで http://localhost:8000/chat.html を開き、招待トークンを入力して送信
 ```
 
 `examples/chat.html` を実際に使う場合は、`sekimori.config.json` の `cors.allowedOrigins` に配信元(上の例では `"http://localhost:8000"`)を追加してからサーバーを再起動すること。
+
+## `examples/chat.html` — リファレンスクライアント
+
+`chat.html` は「動くチャット画面」ではなく、**自分のアプリの出発点としてそのままコピーする前提のファイル**(DX レビュー A-4、設計は [docs/04-demo-design.md](docs/04-demo-design.md) §2)。依存ゼロ・単一ファイル・ビルドなしのまま、次の形にしてある。
+
+- **開発者が触る場所とエンドユーザーが触る場所を分離**: ファイル冒頭の `<script>` に `CONFIG`(`baseUrl` / `model` / `appName` / `maxTokens`)を置いてあり、自分のアプリにするにはここだけ書き換える。エンドユーザーに URL やモデル名を入力させる UI は存在しない
+- **エンドユーザーが持つのは招待トークンだけ**: 初回にトークンを入力すると `localStorage` に保存され、以後は入力欄を出さない。「トークンを変更」リンクでいつでも再入力できる
+- **複数ターンの会話**: 送受信のたびに `messages` 配列をページ内で積み上げて送る(リロードで消えてよい)
+- **使用量を常時表示**: 送信のたびに `GET /v1/usage` を取得し「今日の利用: $0.012 / $1.000」を小さく表示し続ける
+- **エラーは `error.type` ごとに利用者の言葉で表示**(生の HTTP ステータスや JSON は既定では見せず、`<details>` に折りたたみ表示するのみ):
+  - `authentication_error` → 「招待トークンが無効です。配布元に確認してください」+ トークン再入力欄を自動表示
+  - `budget_exceeded_error` → 「今日の利用上限に達しました。あと約◯時間で再開します」(`Retry-After` から計算)
+  - `rate_limit_error` → 「送信が速すぎます。◯秒待ってください」(`Retry-After` をそのまま秒数表示)
+  - その他・通信エラー → 「接続できません。運営者に連絡してください」
 
 ## テスト・型チェック
 
@@ -114,6 +140,14 @@ curl http://localhost:8787/admin/usage -H "Authorization: Bearer $SEKIMORI_ADMIN
 
 エラーはすべて `{ "error": { "type": string, "message": string } }` 形式で返る。
 
+**`Retry-After`(A-6)**: 予算超過(`budget_exceeded_error`)とレート制限(`rate_limit_error`)の `429` には `Retry-After` ヘッダ(秒数)が付く。
+
+- 日次上限超過 → 次の UTC 深夜(`00:00:00 UTC`)までの秒数
+- 月次上限超過(全体のキルスイッチ) → 翌月 1 日 `00:00:00 UTC` までの秒数
+- レート制限超過 → 現在の 1 分ウィンドウが終わるまでの秒数
+
+いずれも `src/budget.ts` の純粋関数(`secondsUntilNextUTCMidnight` / `secondsUntilNextUTCMonth` / `retryAfterSecondsForReason`)で計算しており、単体テストで境界(月またぎ・年またぎ)を確認している。
+
 ## 設定リファレンス(`sekimori.config.json`)
 
 起動時の第1引数でパスを指定する(既定 `./sekimori.config.json`)。テンプレートは [sekimori.config.example.json](sekimori.config.example.json)。秘密情報は config に書かず環境変数で渡す。
@@ -150,6 +184,9 @@ curl http://localhost:8787/admin/usage -H "Authorization: Bearer $SEKIMORI_ADMIN
 - **管理キー比較**: `crypto.timingSafeEqual` で定数時間比較している(仕様に明記はないが、タイミング攻撃への基本的な備えとして採用)。
 - **`config` の任意項目の既定値**: 検証必須項目(`models` の非空・価格の正数性・`apiKeyEnv` と `SEKIMORI_ADMIN_KEY` の存在)以外(`port` `rateLimit` `cors` `logging` `store.path`)は、省略時に妥当な既定値で補って起動を許可している。
 - **`DELETE /admin/tokens/:id` で未知の id を指定した場合**: 仕様に応答コードの指定がないため `404` を返す(サイレントに成功扱いしない)。
+- **非許可 Origin 警告のスロットリング(A-5)**: DX レビューは「1 行の警告を出す」とだけ述べており頻度は規定していない。本実装ではリクエストごとに毎回警告する(同一 Origin から連打されると stdout が埋まり得る)。運営者に「気づかせる」という目的は満たすため、デデュープ等の抑制ロジックは今回のスコープ外とした。
+- **`examples/demo.sh` のレート制限シナリオ**: 設計([04-demo-design.md](docs/04-demo-design.md) §1 手順 12)は「alice が 6 連打 → 6 回目が 429」と書かれているが、実装ではレート制限のカウンタが `/v1/messages` へのリクエストごと(モデル拒否で弾かれた分も含む)に消費されるため、同一スクリプト内で alice が事前に行った呼び出し(非ストリーム・ストリーム・許可外モデル拒否の 3 回)も同じ 1 分ウィンドウの消費に数える。よって「ちょうど 6 回目」を固定で assert すると実行順に依存して壊れる。本実装では「6 回連打するうちに `rate_limit_error` + `Retry-After` が必ず 1 回は発生すること」を検証しており、何回目で発生したかは画面に表示するに留めている。
+- **`examples/demo.sh` の mallory 予算超過の起こし方**: `dailyUsd: 0.001` という極小値そのものだけでは、JSON シリアライズのバイト数に依存する見積もり計算が微妙な境界になり脆い。そこで既存の `test/budget-integration.test.ts` と同じ手法(1 回目は小さい `max_tokens`、2 回目は非現実的に大きい `max_tokens` を渡してワーストケース見積もりを確実に上限突破させる)を採用し、決定的に「1 回目成功・2 回目 429」を再現している。
 
 ## 実装しないこと
 
@@ -158,10 +195,11 @@ curl http://localhost:8787/admin/usage -H "Authorization: Bearer $SEKIMORI_ADMIN
 ## 体制
 
 - 設計: Claude(Fable 5)
-- MVP 実装: Claude(Sonnet 5)
+- MVP 実装・DX レビュー対応実装: Claude(Sonnet 5)
 - 公開・デプロイ・命名の最終決定: 人間(yktsnd)
 
 ## ステータス
 
 - 2026-07: MVP 実装完了(`npm test` / `npx tsc --noEmit` グリーン)
+- 2026-07: DX レビュー([03-dx-review.md](docs/03-dx-review.md))の「今すぐ直す」7 件に対応(起動サマリ・config 不在時の案内・`Retry-After`・非許可 Origin 警告・`chat.html` のリファレンスクライアント化・`examples/demo.sh`)。`npm test` / `npx tsc --noEmit` グリーン、`bash examples/demo.sh` オフライン完走を確認
 - 名称 `sekimori` は仮。公開前に npm / GitHub / 商標の正式チェックを行う

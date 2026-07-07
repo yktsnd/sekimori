@@ -16,6 +16,7 @@ import {
   estimateWorstCost,
   monthKeyUTC,
   precheckBudget,
+  retryAfterSecondsForReason,
 } from "./budget.js";
 
 export interface AppDeps {
@@ -66,6 +67,16 @@ export function createApp(deps: AppDeps): Hono {
   const { config, store, upstreamApiKey, adminKey } = deps;
   const rateLimiter = new RateLimiter(config.rateLimit.requestsPerMinute);
   const app = new Hono();
+
+  // A-5: 許可されていない Origin からのリクエストを受けた際、運営者に気づかせるための
+  // 1 行警告を stdout に出す。遮断そのもの（CORS ヘッダを出さないこと）は変えない。
+  app.use("*", async (c, next) => {
+    const origin = c.req.header("Origin");
+    if (origin && !config.cors.allowedOrigins.includes(origin)) {
+      console.warn(`[sekimori] blocked origin: ${origin} (cors.allowedOrigins に追加が必要かもしれない)`);
+    }
+    await next();
+  });
 
   // CORS: allowedOrigins が空なら CORS ヘッダを一切出さない（§7）。
   app.use(
@@ -213,10 +224,12 @@ export function createApp(deps: AppDeps): Hono {
       globalMonthlyUsd: config.budget.monthlyUsd,
     });
     if (!decision.allowed) {
+      // reason は precheckBudget が allowed: false を返す際は必ず設定される（budget.ts §PrecheckBudgetParams 参照）。
+      const reason = decision.reason ?? "daily_limit";
       const message =
-        decision.reason === "monthly_limit"
-          ? "monthly budget limit exceeded"
-          : "daily budget limit exceeded for this token";
+        reason === "monthly_limit" ? "monthly budget limit exceeded" : "daily budget limit exceeded for this token";
+      // A-6: いつ再開できるかを機械可読に伝える。日次 → 次の UTC 深夜、月次 → 翌月 1 日 UTC。
+      c.header("Retry-After", String(retryAfterSecondsForReason(reason)));
       finish(429);
       return c.json(errorBody("budget_exceeded_error", message), 429);
     }

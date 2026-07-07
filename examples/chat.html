@@ -2,129 +2,361 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8" />
-<title>sekimori 最小チャット</title>
+<title>sekimori リファレンスクライアント</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
-  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
-  h1 { font-size: 1.1rem; }
-  label { display: block; margin-top: 0.75rem; font-size: 0.85rem; color: #444; }
-  input, textarea { width: 100%; box-sizing: border-box; padding: 0.5rem; font-size: 0.95rem; border: 1px solid #ccc; border-radius: 6px; }
-  textarea { min-height: 4rem; resize: vertical; }
-  button { margin-top: 0.75rem; padding: 0.5rem 1.25rem; font-size: 0.95rem; border: none; border-radius: 6px; background: #2563eb; color: white; cursor: pointer; }
-  button:disabled { background: #93a5c9; cursor: default; }
-  #log { margin-top: 1.5rem; white-space: pre-wrap; border: 1px solid #ddd; border-radius: 6px; padding: 0.75rem; min-height: 6rem; background: #fafafa; }
-  .error { color: #b00020; }
+  :root { color-scheme: light; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    max-width: 640px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a;
+  }
+  h1 { font-size: 1.1rem; margin-bottom: 0.25rem; }
   .hint { color: #666; font-size: 0.8rem; }
+  .usage-bar {
+    margin: 0.75rem 0; padding: 0.5rem 0.75rem; border: 1px solid #ddd; border-radius: 6px;
+    background: #f5f7fa; font-size: 0.85rem; display: flex; justify-content: space-between; align-items: center;
+    gap: 0.5rem; flex-wrap: wrap;
+  }
+  .usage-bar .change-token { font-size: 0.8rem; color: #2563eb; cursor: pointer; text-decoration: underline; border: none; background: none; padding: 0; }
+  #tokenGate { margin-top: 1rem; }
+  #tokenGate label { display: block; margin-bottom: 0.4rem; font-size: 0.9rem; }
+  #tokenGate input { width: 100%; box-sizing: border-box; padding: 0.5rem; font-size: 0.95rem; border: 1px solid #ccc; border-radius: 6px; }
+  #tokenGate button { margin-top: 0.6rem; padding: 0.5rem 1.25rem; font-size: 0.9rem; border: none; border-radius: 6px; background: #2563eb; color: white; cursor: pointer; }
+  #chatArea { margin-top: 1rem; }
+  #history {
+    border: 1px solid #ddd; border-radius: 6px; padding: 0.75rem; min-height: 10rem; max-height: 24rem;
+    overflow-y: auto; background: #fafafa; display: flex; flex-direction: column; gap: 0.6rem;
+  }
+  .msg { white-space: pre-wrap; padding: 0.5rem 0.65rem; border-radius: 6px; max-width: 90%; }
+  .msg.user { align-self: flex-end; background: #dbeafe; }
+  .msg.assistant { align-self: flex-start; background: #eee; }
+  .msg.system-error { align-self: stretch; background: #fdecea; color: #92140c; border: 1px solid #f5c2c0; }
+  .composer { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
+  .composer textarea { flex: 1; box-sizing: border-box; padding: 0.5rem; font-size: 0.95rem; border: 1px solid #ccc; border-radius: 6px; min-height: 3rem; resize: vertical; }
+  .composer button { padding: 0.5rem 1.25rem; font-size: 0.95rem; border: none; border-radius: 6px; background: #2563eb; color: white; cursor: pointer; align-self: flex-end; }
+  .composer button:disabled { background: #93a5c9; cursor: default; }
+  details.raw { margin-top: 0.4rem; font-size: 0.75rem; color: #888; }
+  [hidden] { display: none !important; }
 </style>
 </head>
 <body>
-  <h1>sekimori 最小チャット(examples/chat.html)</h1>
+
+<script>
+// ============================================================================
+// ここだけ書き換えれば自分のアプリになる(エンドユーザーはこの下を触らない)。
+//
+// - baseUrl / model はアプリの開発者が決めるものであり、エンドユーザーには見せない・
+//   入力させない。エンドユーザーが持つのは招待トークンだけ。
+// - このファイルは「コピーして自分のアプリの出発点にするもの」として設計されている
+//   (依存ゼロ・1 ファイル・ビルドなし)。
+const CONFIG = {
+  baseUrl: "http://localhost:8787",
+  model: "claude-haiku-4-5-20251001",
+  appName: "sekimori リファレンスクライアント",
+  maxTokens: 512,
+};
+// ============================================================================
+</script>
+
+  <h1 id="appTitle"></h1>
   <p class="hint">
     sekimori 経由で招待トークンを使って POST /v1/messages(stream: true)を叩くだけの、依存ゼロの
     デモページです。CORS の都合上、file:// で直接開くのではなく簡易 HTTP サーバーで配信してください
     (例: <code>python3 -m http.server 8000</code> をこのディレクトリで実行し、sekimori 側の
-    <code>cors.allowedOrigins</code> に <code>http://localhost:8000</code> を追加する)。
+    <code>cors.allowedOrigins</code> に配信元を追加する)。
   </p>
 
-  <label>sekimori のベース URL</label>
-  <input id="baseUrl" value="http://localhost:8787" />
+  <div id="tokenGate">
+    <label for="tokenInput">招待トークン(smk_...)を入力してください</label>
+    <input id="tokenInput" placeholder="smk_..." autocomplete="off" />
+    <button id="saveToken">保存して開始</button>
+  </div>
 
-  <label>招待トークン(smk_...)</label>
-  <input id="token" placeholder="smk_..." />
+  <div id="chatArea" hidden>
+    <div class="usage-bar">
+      <span id="usageText">今日の利用: 取得中…</span>
+      <button class="change-token" id="changeToken" type="button">トークンを変更</button>
+    </div>
 
-  <label>モデル</label>
-  <input id="model" value="claude-haiku-4-5-20251001" />
+    <div id="history"></div>
 
-  <label>メッセージ</label>
-  <textarea id="message">こんにちは。自己紹介してください。</textarea>
-
-  <button id="send">送信(ストリーミング)</button>
-
-  <div id="log"></div>
+    <div class="composer">
+      <textarea id="input" placeholder="メッセージを入力(Shift+Enter で改行、Enter で送信)"></textarea>
+      <button id="send">送信</button>
+    </div>
+    <details class="raw" id="rawDetails" hidden>
+      <summary>直近のエラー詳細(開発者向け)</summary>
+      <pre id="rawText"></pre>
+    </details>
+  </div>
 
 <script>
-const $ = (id) => document.getElementById(id);
-const logEl = $("log");
+(() => {
+  const TOKEN_STORAGE_KEY = "sekimori.inviteToken";
+  const $ = (id) => document.getElementById(id);
 
-function appendLog(text) {
-  logEl.textContent += text;
-}
+  document.getElementById("appTitle").textContent = CONFIG.appName;
 
-function appendError(text) {
-  const span = document.createElement("div");
-  span.className = "error";
-  span.textContent = text;
-  logEl.appendChild(span);
-}
-
-$("send").addEventListener("click", async () => {
-  const baseUrl = $("baseUrl").value.replace(/\/$/, "");
-  const token = $("token").value.trim();
-  const model = $("model").value.trim();
-  const message = $("message").value;
+  const tokenGate = $("tokenGate");
+  const chatArea = $("chatArea");
+  const tokenInput = $("tokenInput");
+  const saveTokenBtn = $("saveToken");
+  const changeTokenBtn = $("changeToken");
+  const usageText = $("usageText");
+  const historyEl = $("history");
+  const composerInput = $("input");
   const sendBtn = $("send");
+  const rawDetails = $("rawDetails");
+  const rawText = $("rawText");
 
-  if (!token) {
-    alert("招待トークンを入力してください(sekimori の管理者に発行してもらうか、curl で発行してください)");
-    return;
+  /** ページ内で保持する会話履歴。リロードで消えてよい(仕様どおり)。 */
+  let messages = [];
+
+  function getToken() {
+    return localStorage.getItem(TOKEN_STORAGE_KEY);
   }
 
-  logEl.textContent = "";
-  sendBtn.disabled = true;
+  function saveToken(token) {
+    localStorage.setItem(TOKEN_STORAGE_KEY, token);
+  }
 
-  try {
-    const res = await fetch(`${baseUrl}/v1/messages`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 512,
-        stream: true,
-        messages: [{ role: "user", content: message }],
-      }),
-    });
+  function clearToken() {
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
+  }
 
-    if (!res.ok || !res.body) {
-      const bodyText = await res.text();
-      appendError(`エラー: HTTP ${res.status} ${bodyText}`);
+  function showTokenGate() {
+    tokenGate.hidden = false;
+    chatArea.hidden = true;
+    tokenInput.value = "";
+    tokenInput.focus();
+  }
+
+  function showChatArea() {
+    tokenGate.hidden = true;
+    chatArea.hidden = false;
+    refreshUsage();
+  }
+
+  function renderHistory() {
+    historyEl.innerHTML = "";
+    for (const m of messages) {
+      const div = document.createElement("div");
+      div.className = `msg ${m.role === "user" ? "user" : "assistant"}`;
+      div.textContent = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
+      historyEl.appendChild(div);
+    }
+    historyEl.scrollTop = historyEl.scrollHeight;
+  }
+
+  function appendSystemError(text, rawDetail) {
+    const div = document.createElement("div");
+    div.className = "msg system-error";
+    div.textContent = text;
+    historyEl.appendChild(div);
+    historyEl.scrollTop = historyEl.scrollHeight;
+
+    if (rawDetail) {
+      rawText.textContent = rawDetail;
+      rawDetails.hidden = false;
+    }
+  }
+
+  function fmtUsd(n) {
+    return `$${Number(n).toFixed(3)}`;
+  }
+
+  async function refreshUsage() {
+    const token = getToken();
+    if (!token) return;
+    try {
+      const res = await fetch(`${CONFIG.baseUrl}/v1/usage`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.status === 401) {
+        usageText.textContent = "招待トークンが無効です";
+        return;
+      }
+      if (!res.ok) {
+        usageText.textContent = "利用状況を取得できませんでした";
+        return;
+      }
+      const usage = await res.json();
+      usageText.textContent = `今日の利用: ${fmtUsd(usage.todayUsd)} / ${fmtUsd(usage.dailyLimitUsd)}`;
+    } catch {
+      usageText.textContent = "利用状況を取得できませんでした(通信エラー)";
+    }
+  }
+
+  /** error.type に応じた利用者向けの文言。生の HTTP ステータスや JSON は既定で見せない。 */
+  function friendlyErrorMessage(errorType, retryAfterSeconds) {
+    switch (errorType) {
+      case "authentication_error":
+        return "招待トークンが無効です。配布元に確認してください。";
+      case "budget_exceeded_error": {
+        if (retryAfterSeconds != null) {
+          const hours = Math.max(1, Math.ceil(retryAfterSeconds / 3600));
+          return `今日の利用上限に達しました。あと約${hours}時間で再開します。`;
+        }
+        return "利用上限に達しました。しばらくしてからもう一度お試しください。";
+      }
+      case "rate_limit_error": {
+        if (retryAfterSeconds != null) {
+          return `送信が速すぎます。${retryAfterSeconds}秒待ってください。`;
+        }
+        return "送信が速すぎます。少し待ってからもう一度お試しください。";
+      }
+      default:
+        return "接続できません。運営者に連絡してください。";
+    }
+  }
+
+  function parseRetryAfter(res) {
+    const raw = res.headers.get("retry-after");
+    if (!raw) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  async function handleErrorResponse(res) {
+    const retryAfterSeconds = parseRetryAfter(res);
+    let errorType = null;
+    let bodyText = "";
+    try {
+      bodyText = await res.text();
+      const parsed = JSON.parse(bodyText);
+      errorType = parsed?.error?.type ?? null;
+    } catch {
+      // ボディが JSON でない場合は通信エラー扱いにする
+    }
+
+    appendSystemError(
+      friendlyErrorMessage(errorType, retryAfterSeconds),
+      `HTTP ${res.status}${errorType ? ` (${errorType})` : ""}${bodyText ? `\n${bodyText}` : ""}`,
+    );
+
+    if (errorType === "authentication_error") {
+      clearToken();
+      showTokenGate();
+    }
+  }
+
+  async function sendMessage() {
+    const token = getToken();
+    if (!token) {
+      showTokenGate();
       return;
     }
+    const text = composerInput.value.trim();
+    if (!text) return;
+
+    messages.push({ role: "user", content: text });
+    renderHistory();
+    composerInput.value = "";
+    sendBtn.disabled = true;
+
+    let res;
+    try {
+      res = await fetch(`${CONFIG.baseUrl}/v1/messages`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          model: CONFIG.model,
+          max_tokens: CONFIG.maxTokens,
+          stream: true,
+          messages,
+        }),
+      });
+    } catch (err) {
+      appendSystemError(friendlyErrorMessage(null, null), String(err instanceof Error ? err.message : err));
+      sendBtn.disabled = false;
+      return;
+    }
+
+    if (!res.ok || !res.body) {
+      await handleErrorResponse(res);
+      sendBtn.disabled = false;
+      await refreshUsage();
+      return;
+    }
+
+    // ストリーミング応答をページ内に少しずつ描画しつつ、完了後に会話履歴へ確定する。
+    const assistantDiv = document.createElement("div");
+    assistantDiv.className = "msg assistant";
+    historyEl.appendChild(assistantDiv);
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
+    let assistantText = "";
 
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
 
-      let newlineIndex;
-      while ((newlineIndex = buffer.indexOf("\n")) >= 0) {
-        const line = buffer.slice(0, newlineIndex).trim();
-        buffer = buffer.slice(newlineIndex + 1);
-        if (!line.startsWith("data:")) continue;
-        const jsonStr = line.slice("data:".length).trim();
-        if (!jsonStr) continue;
-        try {
-          const evt = JSON.parse(jsonStr);
-          if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta") {
-            appendLog(evt.delta.text);
+        let newlineIndex;
+        while ((newlineIndex = buffer.indexOf("\n")) >= 0) {
+          const line = buffer.slice(0, newlineIndex).trim();
+          buffer = buffer.slice(newlineIndex + 1);
+          if (!line.startsWith("data:")) continue;
+          const jsonStr = line.slice("data:".length).trim();
+          if (!jsonStr) continue;
+          try {
+            const evt = JSON.parse(jsonStr);
+            if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta") {
+              assistantText += evt.delta.text;
+              assistantDiv.textContent = assistantText;
+              historyEl.scrollTop = historyEl.scrollHeight;
+            }
+          } catch {
+            // パースできない行はそのままスキップ
           }
-        } catch {
-          // 無視: パースできない行はそのままスキップ
         }
       }
+      messages.push({ role: "assistant", content: assistantText });
+    } catch (err) {
+      appendSystemError(friendlyErrorMessage(null, null), String(err instanceof Error ? err.message : err));
+    } finally {
+      sendBtn.disabled = false;
+      await refreshUsage();
     }
-  } catch (err) {
-    appendError(`通信エラー: ${err instanceof Error ? err.message : String(err)}`);
-  } finally {
-    sendBtn.disabled = false;
   }
-});
+
+  saveTokenBtn.addEventListener("click", () => {
+    const token = tokenInput.value.trim();
+    if (!token) return;
+    saveToken(token);
+    showChatArea();
+  });
+
+  tokenInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") saveTokenBtn.click();
+  });
+
+  changeTokenBtn.addEventListener("click", () => {
+    clearToken();
+    showTokenGate();
+  });
+
+  sendBtn.addEventListener("click", sendMessage);
+  composerInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+
+  // 初期表示: トークンが localStorage にあればチャット画面、なければ入力画面。
+  if (getToken()) {
+    showChatArea();
+  } else {
+    showTokenGate();
+  }
+})();
 </script>
 </body>
 </html>

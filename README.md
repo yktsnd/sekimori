@@ -4,8 +4,6 @@
 
 「週末に作った AI プロトタイプを、友人・SNS・β ユーザーに触らせたい」段階の個人開発者向け。設定ファイル 1 枚 + プロセス 1 個で、キー秘匿・予算上限・招待トークン認証・レート制限・system プロンプト固定・SSE 素通しを提供する。背景は [docs/00-background.md](docs/00-background.md)、コンセプトは [docs/01-concept.md](docs/01-concept.md)、実装契約は [docs/02-mvp-spec.md](docs/02-mvp-spec.md)、DX レビューは [docs/03-dx-review.md](docs/03-dx-review.md)、デモ設計は [docs/04-demo-design.md](docs/04-demo-design.md) を参照。
 
-> このリポジトリは、別プロジェクト([manabi-repeat](https://github.com/yktsnd/manabi-repeat) の PoC 収束)から派生した設計・実装の初期検討を、独立リポジトリとして切り出したもの。`docs/` 配下には切り出し前の設計判断の記録(コミット履歴込み)がそのまま残っている。
-
 **単一プロセス前提**: sekimori は水平スケールに対応していない。レート制限・トークンストア(memory 時)はプロセス内メモリで完結する設計であり、複数インスタンスを同時に立てて共有することはできない。個人が身内に公開する規模(数十〜数千リクエスト/日程度)を想定している。
 
 ### ドキュメント一覧(読む順序)

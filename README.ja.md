@@ -21,6 +21,12 @@ bash examples/demo.sh
 
 ## クイックスタート(オフライン・実キー不要)
 
+sekimori はまだ npm に公開されていない([ROADMAP.md](ROADMAP.md) 参照 —
+レジストリ公開は人間がゲートする v0.3 のステップ)。それまではクローンして
+`npx tsx src/main.ts` で実行する。パッケージ化自体はすでに実装・テスト済み
+(`npm run build` + `sekimori` bin)なので、以下は公開後の `npx sekimori` が
+どう動くかを示している。
+
 ```bash
 npm install
 
@@ -35,7 +41,11 @@ node examples/mock-upstream.mjs 9999
 cp sekimori.config.example.json sekimori.config.json
 #    sekimori.config.json の upstream.baseUrl を "http://localhost:9999" に変更
 
+# クローンから実行する場合(現在):
 ANTHROPIC_API_KEY=dummy SEKIMORI_ADMIN_KEY=change-me npx tsx src/main.ts sekimori.config.json
+
+# インストール済みパッケージから実行する場合(v0.3 の npm 公開後。動作は同じ):
+ANTHROPIC_API_KEY=dummy SEKIMORI_ADMIN_KEY=change-me npx sekimori sekimori.config.json
 ```
 
 ```bash
@@ -76,6 +86,8 @@ curl -s -X POST http://localhost:8787/v1/messages \
 ```bash
 npm test          # node:test。モック上流を内包しており実 API キー不要
 npm run typecheck # tsc --noEmit
+npm run build     # tsc -> dist/(ESM)。`sekimori` bin の実体
+npm run test:pack # tarball を作って新規インストールし、実際の bin を起動して確認するパッケージングのスモークテスト
 ```
 
 ## LiteLLM で足りる人へ

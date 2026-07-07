@@ -11,6 +11,12 @@ All notable changes to sekimori are documented here. The format follows
   SECURITY, issue/PR templates)
 - Current-truth reference docs: `docs/configuration.md`, `docs/api.md`,
   `docs/design.md`
+- npm packaging: `npm run build` compiles to `dist/` (ESM), a `sekimori`
+  bin, package metadata (`files`, `engines`, `license`, `repository`,
+  `prepublishOnly`), and `test/pack-smoke.sh` / `npm run test:pack` verifying
+  `npm pack` -> install -> boot -> HTTP round trip against a packed tarball.
+  Version is `0.2.0-dev.0`; the registry publish itself remains a v0.3
+  human-gated step.
 
 ### Changed
 - English is now the primary language (README landing + `README.ja.md`)

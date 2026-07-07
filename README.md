@@ -40,6 +40,12 @@ end-to-end smoke test. Bonus mode against the real API:
 
 ## Quickstart (offline, no API key)
 
+sekimori is not yet published to npm (see [ROADMAP.md](ROADMAP.md) — the
+registry publish is a human-gated v0.3 step). Until then, run it from a
+clone with `npx tsx src/main.ts`. The packaged form already exists and is
+tested (`npm run build` + the `sekimori` bin), so the command below is what
+`npx sekimori` will look like once it's released.
+
 ```bash
 npm install
 
@@ -54,7 +60,11 @@ In another terminal:
 cp sekimori.config.example.json sekimori.config.json
 #    edit sekimori.config.json: set upstream.baseUrl to "http://localhost:9999"
 
+# from a clone (today):
 ANTHROPIC_API_KEY=dummy SEKIMORI_ADMIN_KEY=change-me npx tsx src/main.ts sekimori.config.json
+
+# from an installed package (after the v0.3 npm release; same behavior):
+ANTHROPIC_API_KEY=dummy SEKIMORI_ADMIN_KEY=change-me npx sekimori sekimori.config.json
 ```
 
 ```bash
@@ -102,6 +112,8 @@ as the *only* thing end users ever enter (kept in `localStorage`), live
 ```bash
 npm test          # node:test; bundles a mock upstream — no real API key needed
 npm run typecheck # tsc --noEmit
+npm run build     # tsc -> dist/ (ESM); powers the `sekimori` bin
+npm run test:pack # packs a tarball, installs it fresh, boots the real bin — the packaging smoke test
 ```
 
 ## If LiteLLM is enough for you, use LiteLLM

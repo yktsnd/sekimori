@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 // main.ts - entry point (load config, then start the server)
 
 import { serve } from "@hono/node-server";
@@ -29,9 +30,7 @@ function formatStartupSummary(config: SekimoriConfig): string[] {
   ];
 }
 
-async function main(): Promise<void> {
-  const configPath = process.argv[2] ?? "./sekimori.config.json";
-
+async function runServe(configPath: string): Promise<void> {
   let config;
   try {
     config = loadConfigFromFile(configPath);
@@ -65,7 +64,18 @@ async function main(): Promise<void> {
   });
 }
 
-main().catch((err) => {
+// CLI dispatch. Today there is a single implicit command ("serve"): the sole
+// positional argument, if present, is a config file path. This function is
+// the seam for future subcommands (e.g. `sekimori init`, issue #7) - add a
+// branch here for a recognized args[0] before it falls through to being
+// treated as a config path, so `serve` behavior never has to change.
+async function run(argv: string[]): Promise<void> {
+  const args = argv.slice(2);
+  const configPath = args[0] ?? "./sekimori.config.json";
+  await runServe(configPath);
+}
+
+run(process.argv).catch((err) => {
   console.error("[sekimori] fatal error:", err);
   process.exit(1);
 });

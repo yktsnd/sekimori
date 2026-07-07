@@ -29,7 +29,7 @@ Goal (a) and (c). Everything here is verifiable inside the repo.
 - [ ] Governance docs: CONTRIBUTING, SECURITY, CHANGELOG, issue/PR templates
 - [ ] English-only source: comments, log output, CLI messages, reference
       client UI text
-- [ ] npm packaging: `tsc` build to `dist/`, `sekimori` bin, package
+- [x] npm packaging: `tsc` build to `dist/`, `sekimori` bin, package
       metadata; `npx` from a packed tarball verified as a smoke test
       (actual registry publish is a v0.3 human gate)
 - [ ] `sekimori init`: interactive config generator (zero new dependencies),

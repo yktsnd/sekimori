@@ -1,14 +1,52 @@
 {
   "name": "sekimori",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.2.0-dev.0",
   "type": "module",
   "description": "A minimal self-hosted gateway for shipping AI prototypes without exposing your API key, melting your budget, or becoming a free LLM proxy.",
+  "keywords": [
+    "anthropic",
+    "claude",
+    "llm",
+    "gateway",
+    "proxy",
+    "api-key",
+    "rate-limiting",
+    "budget",
+    "self-hosted",
+    "hono"
+  ],
+  "homepage": "https://github.com/yktsnd/sekimori#readme",
+  "bugs": {
+    "url": "https://github.com/yktsnd/sekimori/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yktsnd/sekimori.git"
+  },
+  "license": "MIT",
+  "bin": {
+    "sekimori": "dist/main.js"
+  },
+  "files": [
+    "dist",
+    "sekimori.config.example.json",
+    "README.md",
+    "README.ja.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "tsx src/main.ts",
     "dev": "tsx watch src/main.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "postbuild": "chmod +x dist/main.js",
     "test": "tsx --test test/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "test:pack": "bash test/pack-smoke.sh",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build && npm run typecheck && npm test"
   },
   "dependencies": {
     "@hono/node-server": "^2.0.8",

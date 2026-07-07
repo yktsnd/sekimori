@@ -1,5 +1,7 @@
 # デモ設計 — 「守りが効く瞬間」を見せる
 
+> **凍結済みの歴史文書**(ラウンド記録)。設計どおり実装済み(`examples/demo.sh` / `examples/chat.html`)。現在の挙動は [README](../../README.md) を参照。
+
 設計: Fable 5(2026-07)。実装: Sonnet 5 に委託。DX レビュー([03-dx-review.md](03-dx-review.md))の A-4・A-6・B-3 に対応する。
 
 ## 0. デモが証明すべきこと

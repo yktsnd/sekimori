@@ -4,9 +4,16 @@ All notable changes to sekimori are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [SemVer](https://semver.org/) once published to npm.
 
-## [Unreleased] — v0.2 "distribution-ready"
+## [Unreleased]
 
-### Added
+### Added — v0.3 "agent-ready"
+- `AGENTS.md`: operations manual for coding agents operating sekimori on
+  behalf of a non-expert owner (deterministic commands, expected outputs,
+  owner-report template, hard rules), plus agent-operator positioning in
+  both READMEs, a new "agents are first-class operators" design principle,
+  and the round-2 sustainability review (`docs/history/06`)
+
+### Added — v0.2 "distribution-ready"
 - `sekimori init [path] [--force] [--yes]`: interactive config generator
   (issue #7), zero new dependencies (`node:readline/promises`). Prompts for
   every setting with defaults shown in `[brackets]`, validates answers as

@@ -21,3 +21,4 @@ For the current behavior of sekimori, see the primary sources:
 | 03 | [DX レビュー](03-dx-review.md) | Friction review: user & contributor journeys |
 | 04 | [デモ設計](04-demo-design.md) | Design of `examples/demo.sh` and the reference client |
 | 05 | [サステナビリティ・レビュー](05-sustainability-review.md) | Longevity analysis that produced the v0.2/v0.3 plan |
+| 06 | [エージェント・オペレーター・レビュー](06-agent-operator-review.md) | Re-derivation for agent-operated use: owner/operator/end-user roles, v0.3 "agent-ready" plan |

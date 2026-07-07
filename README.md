@@ -20,6 +20,14 @@ process memory. sekimori does not scale horizontally and is not for team or
 enterprise production use — it targets an individual sharing an app at the
 scale of tens to thousands of requests per day.
 
+**Your coding agent can run all of this for you.** If your apps are built by
+telling an agent "make X" — and you'd rather not learn deployment or API
+billing — sekimori is the independent safety boundary between that
+agent-built app and your wallet: the key stays server-side and spend stops
+at the caps even if the app has bugs. Agents: your operations manual is
+[AGENTS.md](AGENTS.md). Owners: the only decisions left to you are the
+budget numbers and who gets invited.
+
 ## See everything in one command
 
 The six moments sekimori exists for — blocking tokenless intrusion, stopping
@@ -103,6 +111,7 @@ as the *only* thing end users ever enter (kept in `localStorage`), live
 
 | You want to… | Read |
 |---|---|
+| Operate sekimori as a coding agent (deterministic commands, verification, rules) | [AGENTS.md](AGENTS.md) |
 | Configure sekimori | [docs/configuration.md](docs/configuration.md) |
 | Call or administer it (all endpoints, curl examples, error types, `Retry-After`) | [docs/api.md](docs/api.md) |
 | Understand the design constraints (fail-closed decisions, extension points) | [docs/design.md](docs/design.md) |
@@ -145,4 +154,6 @@ these are declared so your PR time is never wasted on them.
 ## Status
 
 - 2026-07: MVP + DX-review fixes complete; standalone repo extracted.
-  Current work: v0.2 "distribution-ready" (see [ROADMAP.md](ROADMAP.md)).
+- 2026-07: v0.2 "distribution-ready" complete (English-first docs,
+  governance set, npm packaging, `sekimori init`, CI). Current work:
+  v0.3 "agent-ready" (see [ROADMAP.md](ROADMAP.md)).

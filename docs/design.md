@@ -30,6 +30,12 @@ of how these emerged is in [docs/history/](history/).
 6. **Privacy by default.** With `logBodies: false` (default), no request or
    response bodies are ever logged — only counts, token usage, cost, status,
    and latency.
+7. **Agents are first-class operators.** sekimori is routinely installed and
+   run by a coding agent on behalf of an owner who cannot audit the result.
+   Every operation must therefore work without a TTY, without interactive
+   prompts, and with machine-checkable outcomes (exit codes, JSON, stable
+   `error.type` values); [AGENTS.md](../AGENTS.md) is the contract for that
+   reader and ships in the npm package.
 
 ## Decisions where the spec was silent (fail-closed choices)
 

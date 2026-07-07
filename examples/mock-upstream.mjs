@@ -6,6 +6,10 @@
 // 応じて非ストリーム JSON か SSE を返す。
 //
 // 使い方: node examples/mock-upstream.mjs [port=9999]
+//
+// ../test/helpers/mock-upstream.ts とは別実装(意図的)。あちらは node:test から import して
+// 使う TypeScript のテストハーネスで、こちらはビルド不要で手元から直接叩ける依存ゼロの
+// スタンドアロン .mjs スクリプト。用途が違うため統合していない。
 
 import { createServer } from "node:http";
 

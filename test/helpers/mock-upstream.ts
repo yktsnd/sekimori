@@ -1,5 +1,9 @@
 // mock-upstream.ts — テスト用の擬似 Anthropic Messages API サーバー（node:http）。
 // 実 API キー不要でテストをオフライン実行するためのモック。
+//
+// ../../examples/mock-upstream.mjs とは別実装（意図的）。あちらは人間が手元で直接叩く
+// 依存ゼロのスタンドアロンスクリプトで、こちらは node:test から import して各テストが
+// 個別ポートで起動するテストハーネス。用途が違うため統合していない。
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";

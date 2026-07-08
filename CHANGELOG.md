@@ -6,6 +6,15 @@ All notable changes to sekimori are documented here. The format follows
 
 ## [Unreleased]
 
+### Added — v0.4 "owner-ready"
+- Owner guide (`docs/owner-guide.md` / `docs/owner-guide.ja.md`): the
+  first document addressed to the app's owner rather than a developer or
+  agent — explains from zero what an API key and hosting are, how to get
+  them (Anthropic direct or Amazon Bedrock to use existing AWS credits),
+  cost ballparks, safe key handover, and the protection summary to expect;
+  linked from both READMEs and AGENTS.md, plus the round-3 review
+  (`docs/history/07`)
+
 ### Added — v0.3 "agent-ready"
 - `sekimori doctor [config] [--json]` (issue #14): non-interactive,
   no-TTY, no-network self-check of a concrete installation — config file

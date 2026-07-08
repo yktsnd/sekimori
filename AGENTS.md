@@ -22,8 +22,14 @@ bugs: the key never reaches clients, and spend stops at the caps. Treat it
 as the thing that protects your principal **from your own mistakes**.
 
 Three roles:
-- **Owner** (human): supplies the Anthropic API key and the budget numbers;
-  reads your summary. Never needs to touch sekimori.
+- **Owner** (human): supplies the upstream API key (Anthropic direct, or an
+  Amazon Bedrock API key) and the budget numbers; reads your summary. Never
+  needs to touch sekimori. If your owner doesn't know what an API key or a
+  hosting account is, **send them
+  [docs/owner-guide.md](docs/owner-guide.md) /
+  [docs/owner-guide.ja.md](docs/owner-guide.ja.md)** — it walks them through
+  obtaining every credential with zero prior knowledge. Do not improvise
+  that explanation.
 - **Operator** (you): install, configure, run, verify, issue tokens, watch
   usage.
 - **End users**: get an invite token (`smk_...`) and use the app. They never

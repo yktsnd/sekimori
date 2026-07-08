@@ -6,16 +6,19 @@ fixed by the [non-goals](docs/design.md); this roadmap is about closing the
 gap between "works for its author" and "trustworthy for strangers", then
 stopping.
 
-The goal, revised by the two sustainability reviews
+The goal, revised by three sustainability reviews
 ([round 1](docs/history/05-sustainability-review.md),
-[round 2](docs/history/06-agent-operator-review.md)):
+[round 2](docs/history/06-agent-operator-review.md),
+[round 3](docs/history/07-owner-onboarding-review.md)):
 
-> The **owner** (a human who may know nothing about deployment or billing)
-> supplies only a budget and an API key. The **operator** — typically a
-> coding agent — installs, configures, verifies, and runs sekimori without
-> human intervention, and hands the owner a plain-language summary of what
-> is protected. A third-party contributor can still fix and extend the tool
-> without ever contacting the maintainer.
+> The **owner** (a human who may know nothing about deployment or billing —
+> not even what an API key or a hosting account *is*) can learn everything
+> that is theirs to do from one guide in their own language, and can pay
+> with credits they already hold (Anthropic direct or AWS Bedrock). The
+> **operator** — typically a coding agent — installs, configures, verifies,
+> and runs sekimori without human intervention, and hands the owner a
+> plain-language summary of what is protected. A third-party contributor
+> can still fix and extend the tool without ever contacting the maintainer.
 
 Work is issue-driven: every item maps to a GitHub issue with acceptance
 criteria. Items marked **[credential gate]** need the owner's accounts,
@@ -53,11 +56,33 @@ no guesswork, machine-verifiable results.
       with a plain-language summary for owners and `--json` + exit codes
       for agents
 
-## v0.4 — "public release" (credential gates)
+## v0.4 — "owner-ready" (in progress)
+
+The owner needs zero prior knowledge and can pay with credits they already
+hold. Triggered by the owner's real questions ("what is a hosting
+account?", "can I use my AWS Bedrock free credit?") — see
+[round 3](docs/history/07-owner-onboarding-review.md).
+
+- [x] Owner-onboarding review: why "provide credentials" was itself a
+      knowledge-heavy ask, and what closes the gap
+- [ ] Owner guide (`docs/owner-guide.md` + `docs/owner-guide.ja.md`):
+      written for zero prior knowledge — what an API key is and how to get
+      one (Anthropic direct **or** Amazon Bedrock, to use existing AWS
+      credits), what hosting is, cost ballparks, safe key handover, what
+      stays the owner's decision, FAQ; linked from READMEs and AGENTS.md
+- [ ] Amazon Bedrock upstream (`upstream.type: "bedrock"`): Bearer API-key
+      auth (`AWS_BEARER_TOKEN_BEDROCK`), `/model/<id>/invoke` with the
+      documented body transform, same budget accounting; **streaming
+      requests rejected fail-closed** with a clear error (eventstream→SSE
+      transcoding is a "Later" item); `init --upstream-type`, reference
+      client `CONFIG.stream` toggle, docs updated
+
+## v0.5 — "public release" (credential gates)
 
 The release itself, plus proof that the 30-minute publish target holds in
 the real world. Execution is agent work; each item starts the moment the
-human provides the named credential/approval.
+human provides the named credential/approval (the owner guide explains how
+to obtain each one).
 
 - [ ] **[credential gate: hosting account + API key]** Real-deployment
       verification: an agent session deploys one real prototype behind
@@ -88,9 +113,12 @@ Each requires an issue with a concrete user story before any code.
 4. Magic-link / OAuth end-user auth (upgrade path from invite tokens)
 5. Single-page static usage view
 6. `npm create sekimori` scaffold (frontend starter included)
-7. MCP server exposing admin operations as tools — only if real agent
+7. Bedrock streaming (AWS eventstream → SSE transcoding, plus usage
+   extraction from `invocationMetrics`) — heavier transform machinery;
+   pick up once non-streaming Bedrock sees real use
+8. MCP server exposing admin operations as tools — only if real agent
    operation shows the CLI + HTTP API surface is not enough
-8. Publish-readiness auditor (the shelved alternative concept, revisited)
+9. Publish-readiness auditor (the shelved alternative concept, revisited)
 
 ## Non-goals (permanent)
 

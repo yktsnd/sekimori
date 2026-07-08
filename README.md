@@ -25,8 +25,11 @@ telling an agent "make X" — and you'd rather not learn deployment or API
 billing — sekimori is the independent safety boundary between that
 agent-built app and your wallet: the key stays server-side and spend stops
 at the caps even if the app has bugs. Agents: your operations manual is
-[AGENTS.md](AGENTS.md). Owners: the only decisions left to you are the
-budget numbers and who gets invited.
+[AGENTS.md](AGENTS.md). Owners: your guide — written for zero prior
+knowledge, including what an API key and hosting even are and how to use
+AWS credits you already hold — is
+[docs/owner-guide.md](docs/owner-guide.md)
+([日本語](docs/owner-guide.ja.md)).
 
 ## See everything in one command
 
@@ -111,6 +114,7 @@ as the *only* thing end users ever enter (kept in `localStorage`), live
 
 | You want to… | Read |
 |---|---|
+| You own the app but don't know deployment/billing (what an API key is, what hosting is, what it costs, using AWS credits) | [docs/owner-guide.md](docs/owner-guide.md) / [日本語](docs/owner-guide.ja.md) |
 | Operate sekimori as a coding agent (deterministic commands, verification, rules) | [AGENTS.md](AGENTS.md) |
 | Configure sekimori | [docs/configuration.md](docs/configuration.md) |
 | Call or administer it (all endpoints, curl examples, error types, `Retry-After`) | [docs/api.md](docs/api.md) |

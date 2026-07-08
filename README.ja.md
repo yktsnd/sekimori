@@ -26,7 +26,7 @@ bash examples/demo.sh
 ## クイックスタート(オフライン・実キー不要)
 
 sekimori はまだ npm に公開されていない([ROADMAP.md](ROADMAP.md) 参照 —
-レジストリ公開は人間がゲートする v0.3 のステップ)。それまではクローンして
+レジストリ公開は credential ゲートの v0.5 ステップ)。それまではクローンして
 `npx tsx src/main.ts` で実行する。パッケージ化自体はすでに実装・テスト済み
 (`npm run build` + `sekimori` bin)なので、以下は公開後の `npx sekimori` が
 どう動くかを示している。
@@ -51,7 +51,7 @@ cp sekimori.config.example.json sekimori.config.json
 # クローンから実行する場合(現在):
 ANTHROPIC_API_KEY=dummy SEKIMORI_ADMIN_KEY=change-me npx tsx src/main.ts sekimori.config.json
 
-# インストール済みパッケージから実行する場合(v0.3 の npm 公開後。動作は同じ):
+# インストール済みパッケージから実行する場合(v0.5 の npm 公開後。動作は同じ):
 ANTHROPIC_API_KEY=dummy SEKIMORI_ADMIN_KEY=change-me npx sekimori sekimori.config.json
 ```
 
@@ -116,4 +116,5 @@ npm run test:pack # tarball を作って新規インストールし、実際の 
 ## ステータス
 
 - 2026-07: MVP + DX レビュー対応完了、独立リポジトリ化。
-- 2026-07: v0.2 "distribution-ready" 完了(英語一次ドキュメント・ガバナンス文書・npm パッケージ化・`sekimori init`・CI)。現在は v0.3 "agent-ready"([ROADMAP.md](ROADMAP.md))を進行中。
+- 2026-07: v0.2 "distribution-ready" 完了(英語一次ドキュメント・ガバナンス文書・npm パッケージ化・`sekimori init`・CI)。
+- 2026-07: v0.3 "agent-ready" 完了(AGENTS.md・完全非対話 `init`・`doctor`)、v0.4 "owner-ready" 完了(オーナーガイド日英・Amazon Bedrock 上流)。次は v0.5 "public release"(credential ゲート。[ROADMAP.md](ROADMAP.md) 参照)。

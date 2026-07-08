@@ -54,7 +54,7 @@ end-to-end smoke test. Bonus mode against the real API:
 ## Quickstart (offline, no API key)
 
 sekimori is not yet published to npm (see [ROADMAP.md](ROADMAP.md) — the
-registry publish is a human-gated v0.3 step). Until then, run it from a
+registry publish is a credential-gated v0.5 step). Until then, run it from a
 clone with `npx tsx src/main.ts`. The packaged form already exists and is
 tested (`npm run build` + the `sekimori` bin), so the command below is what
 `npx sekimori` will look like once it's released.
@@ -79,7 +79,7 @@ cp sekimori.config.example.json sekimori.config.json
 # from a clone (today):
 ANTHROPIC_API_KEY=dummy SEKIMORI_ADMIN_KEY=change-me npx tsx src/main.ts sekimori.config.json
 
-# from an installed package (after the v0.3 npm release; same behavior):
+# from an installed package (after the v0.5 npm release; same behavior):
 ANTHROPIC_API_KEY=dummy SEKIMORI_ADMIN_KEY=change-me npx sekimori sekimori.config.json
 ```
 
@@ -160,5 +160,8 @@ these are declared so your PR time is never wasted on them.
 
 - 2026-07: MVP + DX-review fixes complete; standalone repo extracted.
 - 2026-07: v0.2 "distribution-ready" complete (English-first docs,
-  governance set, npm packaging, `sekimori init`, CI). Current work:
-  v0.3 "agent-ready" (see [ROADMAP.md](ROADMAP.md)).
+  governance set, npm packaging, `sekimori init`, CI).
+- 2026-07: v0.3 "agent-ready" complete (AGENTS.md, fully non-interactive
+  `init`, `doctor`) and v0.4 "owner-ready" complete (owner guide EN/JA,
+  Amazon Bedrock upstream). Next: v0.5 "public release" — credential-gated
+  steps listed in [ROADMAP.md](ROADMAP.md).

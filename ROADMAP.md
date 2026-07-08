@@ -35,7 +35,7 @@ templates); English-only source; npm packaging with a pack/boot smoke test;
 `sekimori init`; minimal CI (Node 20/22, typecheck + 55 tests + offline
 demo + pack smoke, ~30 s per job).
 
-## v0.3 — "agent-ready" (in progress)
+## v0.3 — "agent-ready" ✅ (2026-07)
 
 A coding agent can operate sekimori end-to-end deterministically — no TTY,
 no guesswork, machine-verifiable results.
@@ -56,7 +56,7 @@ no guesswork, machine-verifiable results.
       with a plain-language summary for owners and `--json` + exit codes
       for agents
 
-## v0.4 — "owner-ready" (in progress)
+## v0.4 — "owner-ready" ✅ (2026-07)
 
 The owner needs zero prior knowledge and can pay with credits they already
 hold. Triggered by the owner's real questions ("what is a hosting
@@ -65,7 +65,7 @@ account?", "can I use my AWS Bedrock free credit?") — see
 
 - [x] Owner-onboarding review: why "provide credentials" was itself a
       knowledge-heavy ask, and what closes the gap
-- [ ] Owner guide (`docs/owner-guide.md` + `docs/owner-guide.ja.md`):
+- [x] Owner guide (`docs/owner-guide.md` + `docs/owner-guide.ja.md`):
       written for zero prior knowledge — what an API key is and how to get
       one (Anthropic direct **or** Amazon Bedrock, to use existing AWS
       credits), what hosting is, cost ballparks, safe key handover, what

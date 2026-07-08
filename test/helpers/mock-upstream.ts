@@ -163,3 +163,53 @@ export function sseMessagesHandler(opts: { inputTokens: number; outputTokens: nu
     });
   };
 }
+
+/** One captured request against the mock Bedrock upstream. */
+export interface BedrockCapture {
+  method: string;
+  path: string;
+  headers: Record<string, string | string[] | undefined>;
+  body: unknown;
+}
+
+/**
+ * Mock Amazon Bedrock InvokeModel endpoint: `POST /model/:id/invoke`.
+ * Captures method/path/headers/parsed-body of every request into
+ * `captures` (push to the same array across requests to assert nothing
+ * reached it, e.g. for the streaming-rejection test), and returns an
+ * Anthropic-shaped JSON response with usage - Bedrock returns Anthropic's
+ * own response shape for Claude models.
+ */
+export function bedrockInvokeModelHandler(
+  captures: BedrockCapture[],
+  opts: { inputTokens: number; outputTokens: number; text?: string } = { inputTokens: 10, outputTokens: 10 },
+): MockHandler {
+  return (req, res) => {
+    void readBody(req).then((raw) => {
+      let body: unknown;
+      try {
+        body = raw ? JSON.parse(raw) : undefined;
+      } catch {
+        body = raw;
+      }
+      captures.push({
+        method: req.method ?? "",
+        path: req.url ?? "",
+        headers: { ...req.headers },
+        body,
+      });
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          id: "msg_bedrock_test",
+          type: "message",
+          role: "assistant",
+          content: [{ type: "text", text: opts.text ?? "hello from bedrock" }],
+          model: "test-model",
+          stop_reason: "end_turn",
+          usage: { input_tokens: opts.inputTokens, output_tokens: opts.outputTokens },
+        }),
+      );
+    });
+  };
+}

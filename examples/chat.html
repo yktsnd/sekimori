@@ -56,6 +56,11 @@ const CONFIG = {
   model: "claude-haiku-4-5-20251001",
   appName: "sekimori reference client",
   maxTokens: 512,
+  // Set stream: false when the gateway's upstream is Amazon Bedrock
+  // (upstream.type: "bedrock") - Bedrock streaming isn't supported yet
+  // (sekimori rejects "stream": true with 400 fail-closed; see ROADMAP.md
+  // "Later"). Leave stream: true for an Anthropic-direct upstream.
+  stream: true,
 };
 // ============================================================================
 </script>
@@ -243,45 +248,46 @@ const CONFIG = {
     }
   }
 
-  async function sendMessage() {
-    const token = getToken();
-    if (!token) {
-      showTokenGate();
-      return;
-    }
-    const text = composerInput.value.trim();
-    if (!text) return;
+  /** Appends the assistant's response to the visible history and commits it
+   * to in-page conversation history. Shared by both the streaming render
+   * loop (called once at the end, already-built text) and the non-streaming
+   * path (called once with the joined response text). */
+  function commitAssistantReply(text) {
+    const assistantDiv = document.createElement("div");
+    assistantDiv.className = "msg assistant";
+    assistantDiv.textContent = text;
+    historyEl.appendChild(assistantDiv);
+    historyEl.scrollTop = historyEl.scrollHeight;
+    messages.push({ role: "assistant", content: text });
+  }
 
-    messages.push({ role: "user", content: text });
-    renderHistory();
-    composerInput.value = "";
-    sendBtn.disabled = true;
-
-    let res;
+  /** Non-streaming request/response path (CONFIG.stream === false - e.g. a
+   * Bedrock upstream, which does not support streaming yet). POSTs without
+   * "stream": true, waits for the full JSON response, and renders it in one
+   * shot by joining content[].text - text-only, matching what the streaming
+   * path renders (no tool_use / other block types). */
+  async function sendNonStreaming(res) {
     try {
-      res = await fetch(`${CONFIG.baseUrl}/v1/messages`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          model: CONFIG.model,
-          max_tokens: CONFIG.maxTokens,
-          stream: true,
-          messages,
-        }),
-      });
+      const body = await res.json();
+      const text = Array.isArray(body.content)
+        ? body.content
+            .filter((block) => block && block.type === "text")
+            .map((block) => block.text ?? "")
+            .join("")
+        : "";
+      commitAssistantReply(text);
     } catch (err) {
       appendSystemError(friendlyErrorMessage(null, null), String(err instanceof Error ? err.message : err));
-      sendBtn.disabled = false;
-      return;
     }
+  }
 
-    if (!res.ok || !res.body) {
-      await handleErrorResponse(res);
-      sendBtn.disabled = false;
-      await refreshUsage();
+  /** Streaming request/response path (CONFIG.stream === true, the default -
+   * an Anthropic-direct upstream). Renders content_block_delta text_delta
+   * events incrementally, then commits the assembled text once the stream
+   * ends. */
+  async function sendStreaming(res) {
+    if (!res.body) {
+      appendSystemError(friendlyErrorMessage(null, null), "response had no body to stream");
       return;
     }
 
@@ -323,6 +329,57 @@ const CONFIG = {
       messages.push({ role: "assistant", content: assistantText });
     } catch (err) {
       appendSystemError(friendlyErrorMessage(null, null), String(err instanceof Error ? err.message : err));
+    }
+  }
+
+  async function sendMessage() {
+    const token = getToken();
+    if (!token) {
+      showTokenGate();
+      return;
+    }
+    const text = composerInput.value.trim();
+    if (!text) return;
+
+    messages.push({ role: "user", content: text });
+    renderHistory();
+    composerInput.value = "";
+    sendBtn.disabled = true;
+
+    let res;
+    try {
+      res = await fetch(`${CONFIG.baseUrl}/v1/messages`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          model: CONFIG.model,
+          max_tokens: CONFIG.maxTokens,
+          stream: CONFIG.stream,
+          messages,
+        }),
+      });
+    } catch (err) {
+      appendSystemError(friendlyErrorMessage(null, null), String(err instanceof Error ? err.message : err));
+      sendBtn.disabled = false;
+      return;
+    }
+
+    if (!res.ok) {
+      await handleErrorResponse(res);
+      sendBtn.disabled = false;
+      await refreshUsage();
+      return;
+    }
+
+    try {
+      if (CONFIG.stream) {
+        await sendStreaming(res);
+      } else {
+        await sendNonStreaming(res);
+      }
     } finally {
       sendBtn.disabled = false;
       await refreshUsage();

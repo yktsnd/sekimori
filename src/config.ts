@@ -12,6 +12,13 @@ export interface SekimoriConfig {
   upstream: {
     baseUrl: string;
     apiKeyEnv: string;
+    /** "anthropic" (default) speaks the Anthropic Messages API directly;
+     * "bedrock" sends Bearer-authenticated requests to Amazon Bedrock's
+     * InvokeModel endpoint with the documented body transform (see
+     * proxy.ts). Always resolved here - defaults to "anthropic" when
+     * omitted from the config file, so downstream code never has to
+     * treat it as optional. */
+    type: "anthropic" | "bedrock";
   };
   models: Record<string, ModelPricing>;
   budget: {
@@ -95,9 +102,19 @@ export function validateConfig(input: unknown): SekimoriConfig {
   if (!isRecord(input.upstream) || typeof input.upstream.baseUrl !== "string" || typeof input.upstream.apiKeyEnv !== "string") {
     throw new ConfigError("upstream.baseUrl and upstream.apiKeyEnv are required");
   }
+  const rawUpstreamType = input.upstream.type;
+  let upstreamType: "anthropic" | "bedrock";
+  if (rawUpstreamType === undefined) {
+    upstreamType = "anthropic";
+  } else if (rawUpstreamType === "anthropic" || rawUpstreamType === "bedrock") {
+    upstreamType = rawUpstreamType;
+  } else {
+    throw new ConfigError('upstream.type must be "anthropic" or "bedrock"');
+  }
   const upstream = {
     baseUrl: input.upstream.baseUrl,
     apiKeyEnv: input.upstream.apiKeyEnv,
+    type: upstreamType,
   };
 
   if (!isRecord(input.models) || Object.keys(input.models).length === 0) {

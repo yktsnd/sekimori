@@ -11,7 +11,7 @@ export const TEST_UPSTREAM_API_KEY = "test-upstream-key";
 export function buildTestConfig(baseUrl: string, overrides: Partial<SekimoriConfig> = {}): SekimoriConfig {
   return {
     port: 0,
-    upstream: { baseUrl, apiKeyEnv: "TEST_UPSTREAM_KEY_ENV" },
+    upstream: { baseUrl, apiKeyEnv: "TEST_UPSTREAM_KEY_ENV", type: "anthropic" },
     models: { "test-model": { inputPerMTok: 1, outputPerMTok: 5 } },
     budget: { monthlyUsd: 30, defaultDailyPerTokenUsd: 0.5 },
     rateLimit: { requestsPerMinute: 10 },

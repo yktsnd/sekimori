@@ -138,9 +138,10 @@ npm run test:pack # packs a tarball, installs it fresh, boots the real bin — t
 
 Need multi-provider routing, team management, or Postgres-backed budgets?
 [LiteLLM Proxy](https://github.com/BerriAI/litellm) is the better tool.
-sekimori deliberately covers the step *before* that: Anthropic only, one
-person publishing to their own circle, `hono` as the only runtime
-dependency — for when LiteLLM feels like overkill for a weekend app.
+sekimori deliberately covers the step *before* that: Claude only — via the
+Anthropic API or Amazon Bedrock — one person publishing to their own
+circle, `hono` as the only runtime dependency — for when LiteLLM feels like
+overkill for a weekend app.
 
 ## Non-goals
 

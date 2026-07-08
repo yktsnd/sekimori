@@ -1,14 +1,22 @@
-// proxy.ts - forwarding to the upstream (Anthropic Messages API) and usage extraction
+// proxy.ts - forwarding to the upstream (Anthropic Messages API, or Amazon
+// Bedrock's InvokeModel endpoint) and usage extraction
 //
 // - Client headers are never passed through as-is; the server builds
-//   x-api-key / anthropic-version / content-type itself (section 6).
+//   x-api-key / anthropic-version / content-type itself (section 6), or for
+//   Bedrock, Authorization: Bearer + content-type only.
 // - Non-streaming responses are returned as JSON, unmodified.
 // - Streaming responses relay the raw SSE bytes unmodified while a duplicate
-//   is parsed line-by-line to extract usage.
+//   is parsed line-by-line to extract usage. Bedrock has no streaming path
+//   here - app.ts rejects "stream": true against a bedrock upstream before
+//   any of this module is reached (fail-closed, no budget consumed).
+// - The two upstream types are handled by entirely separate functions below
+//   (forwardToAnthropic / forwardToBedrock) so the anthropic path is
+//   byte-for-byte unchanged by the bedrock addition.
 
 export interface UpstreamTarget {
   baseUrl: string;
   apiKey: string;
+  type: "anthropic" | "bedrock";
 }
 
 export interface ExtractedUsage {
@@ -29,9 +37,24 @@ export interface ForwardResult {
 }
 
 const ANTHROPIC_VERSION = "2023-06-01";
+const BEDROCK_ANTHROPIC_VERSION = "bedrock-2023-05-31";
 
-/** Forwards a request to the upstream Anthropic Messages API. */
+/** Forwards a request to the configured upstream. Dispatches by
+ * `upstream.type`; the anthropic branch is the original, unmodified
+ * implementation. */
 export async function forwardMessages(
+  upstream: UpstreamTarget,
+  payload: unknown,
+  isStreamRequested: boolean,
+): Promise<ForwardResult> {
+  if (upstream.type === "bedrock") {
+    return forwardToBedrock(upstream, payload);
+  }
+  return forwardToAnthropic(upstream, payload, isStreamRequested);
+}
+
+/** Anthropic Messages API path - unchanged from before Bedrock support was added. */
+async function forwardToAnthropic(
   upstream: UpstreamTarget,
   payload: unknown,
   isStreamRequested: boolean,
@@ -55,6 +78,58 @@ export async function forwardMessages(
     return { status: res.status, contentType, isStream: true, stream: clientStream, usagePromise };
   }
 
+  const bodyText = await res.text();
+  const usage = res.ok ? extractUsageFromJson(bodyText) : null;
+  return {
+    status: res.status,
+    contentType,
+    isStream: false,
+    bodyText,
+    usagePromise: Promise.resolve(usage),
+  };
+}
+
+/**
+ * Amazon Bedrock InvokeModel path (issue #17). Non-streaming only - callers
+ * must reject "stream": true before reaching this function (app.ts does,
+ * fail-closed, before any budget is consumed).
+ *
+ * - URL: POST {baseUrl}/model/{encodeURIComponent(model)}/invoke
+ * - Headers built server-side: Authorization: Bearer <apiKey>,
+ *   content-type: application/json. No x-api-key, no anthropic-version
+ *   header (Bedrock uses a body field for that instead - see below).
+ * - Body transform, starting from `payload` (already past the pinned-system
+ *   replacement in app.ts): delete `model` and `stream` (Bedrock takes the
+ *   model from the URL and does not accept either field in the body), add
+ *   `anthropic_version: "bedrock-2023-05-31"`. Everything else passes
+ *   through untouched.
+ * - Response: Bedrock returns Anthropic-shaped JSON for Claude, so the
+ *   status/body are relayed as-is and usage is extracted with the exact
+ *   same `extractUsageFromJson` the anthropic path uses.
+ */
+async function forwardToBedrock(upstream: UpstreamTarget, payload: unknown): Promise<ForwardResult> {
+  const body = (payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {}) as Record<
+    string,
+    unknown
+  >;
+  const model = typeof body.model === "string" ? body.model : "";
+
+  const transformed: Record<string, unknown> = { ...body };
+  delete transformed.model;
+  delete transformed.stream;
+  transformed.anthropic_version = BEDROCK_ANTHROPIC_VERSION;
+
+  const url = `${upstream.baseUrl}/model/${encodeURIComponent(model)}/invoke`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${upstream.apiKey}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(transformed),
+  });
+
+  const contentType = res.headers.get("content-type");
   const bodyText = await res.text();
   const usage = res.ok ? extractUsageFromJson(bodyText) : null;
   return {

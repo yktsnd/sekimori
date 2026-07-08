@@ -67,3 +67,44 @@ test("config: missing SEKIMORI_ADMIN_KEY is rejected", (t) => {
   delete process.env.SEKIMORI_ADMIN_KEY;
   assert.throws(() => validateConfig(baseConfig()), ConfigError);
 });
+
+// ---------------------------------------------------------------------------
+// upstream.type (issue #17: Amazon Bedrock upstream)
+// ---------------------------------------------------------------------------
+
+test("config: upstream.type omitted defaults to \"anthropic\"", (t) => {
+  t.after(resetEnv);
+  process.env.TEST_KEY_ENV = "sk-test";
+  process.env.SEKIMORI_ADMIN_KEY = "admin-test";
+  const config = validateConfig(baseConfig());
+  assert.equal(config.upstream.type, "anthropic");
+});
+
+test("config: upstream.type \"anthropic\" is accepted", (t) => {
+  t.after(resetEnv);
+  process.env.TEST_KEY_ENV = "sk-test";
+  process.env.SEKIMORI_ADMIN_KEY = "admin-test";
+  const cfg = baseConfig();
+  (cfg.upstream as Record<string, unknown>).type = "anthropic";
+  const config = validateConfig(cfg);
+  assert.equal(config.upstream.type, "anthropic");
+});
+
+test("config: upstream.type \"bedrock\" is accepted", (t) => {
+  t.after(resetEnv);
+  process.env.TEST_KEY_ENV = "sk-test";
+  process.env.SEKIMORI_ADMIN_KEY = "admin-test";
+  const cfg = baseConfig();
+  (cfg.upstream as Record<string, unknown>).type = "bedrock";
+  const config = validateConfig(cfg);
+  assert.equal(config.upstream.type, "bedrock");
+});
+
+test("config: an unknown upstream.type value fails closed with ConfigError", (t) => {
+  t.after(resetEnv);
+  process.env.TEST_KEY_ENV = "sk-test";
+  process.env.SEKIMORI_ADMIN_KEY = "admin-test";
+  const cfg = baseConfig();
+  (cfg.upstream as Record<string, unknown>).type = "openai";
+  assert.throws(() => validateConfig(cfg), ConfigError);
+});

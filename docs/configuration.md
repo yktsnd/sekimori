@@ -139,6 +139,7 @@ list.
 | `port` | Listen port. Default `8787`. |
 | `upstream.baseUrl` | Base URL of the upstream (Anthropic Messages API compatible). |
 | `upstream.apiKeyEnv` | **Name of the environment variable** that holds the upstream API key (the key itself is never written to the config). |
+| `upstream.type` | `"anthropic"` (default when omitted) or `"bedrock"`. Any other value fails startup (`ConfigError`, fail-closed). See "Using Amazon Bedrock" below. |
 | `models` | Allowlist and price table: `{ "<model>": { "inputPerMTok": USD, "outputPerMTok": USD } }`. Requests for models not listed here are rejected with `403`. |
 | `budget.monthlyUsd` | Global monthly cap (kill switch). Once exceeded, **every** token gets `429` until the next month (UTC). |
 | `budget.defaultDailyPerTokenUsd` | Default per-token daily cap applied when a token is issued without an explicit `dailyUsd`. |
@@ -148,6 +149,60 @@ list.
 | `logging.logBodies` | `false` (default): request/response bodies are never logged. |
 | `store.type` | `"memory"` (state is lost on process exit) or `"file"` (persisted to a JSON file). |
 | `store.path` | Path of the state file when `store.type` is `"file"`. |
+
+## Using Amazon Bedrock
+
+Set `upstream.type: "bedrock"` to route through Amazon Bedrock instead of
+calling Anthropic directly — useful if you'd rather spend existing AWS
+credits. sekimori sends Bearer-authenticated, non-streaming requests to
+Bedrock's `InvokeModel` endpoint (`POST {baseUrl}/model/{model}/invoke`),
+transforming the request body (dropping `model`/`stream`, adding
+`"anthropic_version": "bedrock-2023-05-31"`) before forwarding it.
+Everything else about a request — the model allowlist, budget accounting,
+rate limiting, the pinned system prompt — behaves exactly as it does with
+the Anthropic-direct upstream. **Streaming is not
+yet supported**: a request with `"stream": true` against a bedrock upstream
+is rejected with `400 invalid_request_error` before any budget is consumed
+(eventstream → SSE transcoding is a [ROADMAP.md](../ROADMAP.md) "Later"
+item) — set `"stream": false` in your client (see `CONFIG.stream` in
+[`examples/chat.html`](../examples/chat.html)).
+
+To use it:
+
+1. **Generate a Bedrock API key.** Bedrock has offered Bearer-token API
+   keys since July 2025 — generate one from the Bedrock console (or the
+   AWS CLI) and export it as `AWS_BEARER_TOKEN_BEDROCK` (the conventional
+   env var name, and what `sekimori init --upstream-type bedrock` writes
+   into `upstream.apiKeyEnv` by default — you can point `apiKeyEnv` at a
+   different variable name if you prefer).
+2. **Enable model access in the AWS console.** Bedrock model access is
+   opt-in per model, per account/region — a request against a model you
+   haven't enabled fails even with a valid API key. Enable it before first
+   use.
+3. **Use Bedrock-style model ids.** Bedrock model ids look like
+   `global.anthropic.claude-haiku-4-5-20251001-v1:0` — region and
+   inference-profile prefixes vary by account, so check the owner's AWS
+   console for the exact id to put in `models`.
+
+Example config snippet:
+
+```json
+{
+  "upstream": {
+    "baseUrl": "https://bedrock-runtime.us-east-1.amazonaws.com",
+    "apiKeyEnv": "AWS_BEARER_TOKEN_BEDROCK",
+    "type": "bedrock"
+  },
+  "models": {
+    "global.anthropic.claude-haiku-4-5-20251001-v1:0": { "inputPerMTok": 1.0, "outputPerMTok": 5.0 }
+  }
+}
+```
+
+`sekimori init --upstream-type bedrock` generates this shape for you
+(defaults: Bedrock's `us-east-1` `bedrock-runtime` endpoint,
+`AWS_BEARER_TOKEN_BEDROCK`, and the model id above) — see "`sekimori init`"
+above.
 
 ## Required environment variables
 

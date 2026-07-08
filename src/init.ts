@@ -15,14 +15,38 @@ import { validateConfig, type SekimoriConfig } from "./config.js";
 import type { ModelPricing } from "./budget.js";
 
 /** The env var name sekimori.config.example.json also uses. Not prompted for
- * (see report / CHANGELOG): keeping this fixed avoids a tenth prompt for a
- * value that is almost always ANTHROPIC_API_KEY, and matches the example
- * config that docs/configuration.md already points people at. */
-const API_KEY_ENV = "ANTHROPIC_API_KEY";
+ * directly (see report / CHANGELOG): its value is derived from
+ * upstream.type instead of asked as its own question - Anthropic direct
+ * almost always reads ANTHROPIC_API_KEY, Bedrock's Bearer API keys (issue
+ * #17) are conventionally read from AWS_BEARER_TOKEN_BEDROCK. */
+const ANTHROPIC_API_KEY_ENV = "ANTHROPIC_API_KEY";
+const BEDROCK_API_KEY_ENV = "AWS_BEARER_TOKEN_BEDROCK";
 
-/** Default model + reference pricing, matching sekimori.config.example.json. */
-const DEFAULT_MODEL_NAME = "claude-haiku-4-5-20251001";
+const ANTHROPIC_DEFAULT_BASE_URL = "https://api.anthropic.com";
+/** us-east-1 bedrock-runtime endpoint; region/inference-profile prefixes
+ * vary by account - see docs/configuration.md, "Using Amazon Bedrock". */
+const BEDROCK_DEFAULT_BASE_URL = "https://bedrock-runtime.us-east-1.amazonaws.com";
+
+/** Default model + reference pricing, matching sekimori.config.example.json.
+ * The Bedrock default is the equivalent model as a Bedrock-style
+ * inference-profile id, same reference prices. */
+const ANTHROPIC_DEFAULT_MODEL_NAME = "claude-haiku-4-5-20251001";
+const BEDROCK_DEFAULT_MODEL_NAME = "global.anthropic.claude-haiku-4-5-20251001-v1:0";
 const DEFAULT_MODEL_PRICING: ModelPricing = { inputPerMTok: 1.0, outputPerMTok: 5.0 };
+
+type UpstreamType = "anthropic" | "bedrock";
+
+function defaultBaseUrlFor(upstreamType: UpstreamType): string {
+  return upstreamType === "bedrock" ? BEDROCK_DEFAULT_BASE_URL : ANTHROPIC_DEFAULT_BASE_URL;
+}
+
+function defaultApiKeyEnvFor(upstreamType: UpstreamType): string {
+  return upstreamType === "bedrock" ? BEDROCK_API_KEY_ENV : ANTHROPIC_API_KEY_ENV;
+}
+
+function defaultModelNameFor(upstreamType: UpstreamType): string {
+  return upstreamType === "bedrock" ? BEDROCK_DEFAULT_MODEL_NAME : ANTHROPIC_DEFAULT_MODEL_NAME;
+}
 
 export interface InitIO {
   input: NodeJS.ReadableStream;
@@ -41,6 +65,7 @@ export interface InitIO {
  * when set, they REPLACE the default entirely (they don't merge with it). */
 export interface InitFlagOverrides {
   port?: number;
+  upstreamType?: UpstreamType;
   upstreamUrl?: string;
   models?: Record<string, ModelPricing>;
   monthlyUsd?: number;
@@ -62,7 +87,8 @@ export interface ParsedInitArgs {
 export type ParseInitArgsResult = ParsedInitArgs | { error: string } | { help: true };
 
 export const INIT_USAGE_LINE =
-  "Usage: sekimori init [path] [--force] [--yes] [--help] [--port N] [--upstream-url URL] " +
+  "Usage: sekimori init [path] [--force] [--yes] [--help] [--port N] " +
+  "[--upstream-type anthropic|bedrock] [--upstream-url URL] " +
   "[--model name=in,out]... [--monthly-usd N] [--daily-usd N] [--rate-limit N] " +
   "[--store file|memory] [--store-path PATH] [--cors-origin ORIGIN]... [--pinned-system TEXT]";
 
@@ -88,8 +114,18 @@ Flags:
       Show this help and exit.
   --port N
       Listen port (default: 8787).
+  --upstream-type anthropic|bedrock
+      Upstream provider (default: anthropic). "bedrock" sends
+      Bearer-authenticated requests to Amazon Bedrock's InvokeModel endpoint
+      (issue #17; streaming is not yet supported there). Selecting bedrock
+      changes the defaults for --upstream-url (Bedrock's bedrock-runtime
+      endpoint), the model allow list (a Bedrock-style inference-profile
+      id), and the env var read for the upstream key
+      (AWS_BEARER_TOKEN_BEDROCK instead of ANTHROPIC_API_KEY) - see
+      docs/configuration.md, "Using Amazon Bedrock".
   --upstream-url URL
-      Upstream base URL (default: https://api.anthropic.com).
+      Upstream base URL (default: https://api.anthropic.com, or Bedrock's
+      bedrock-runtime endpoint when --upstream-type bedrock is given).
   --model name=in,out
       Add a model to the allow list / price table (USD per MTok), e.g.
       --model claude-haiku-4-5-20251001=1,5. Repeatable; if given at least
@@ -116,6 +152,7 @@ Examples:
   sekimori init --yes --port 3000 --model claude-haiku-4-5-20251001=1,5 \\
     --monthly-usd 10 --cors-origin https://example.com
   sekimori init ./my.config.json --force --store memory
+  sekimori init --yes --upstream-type bedrock
 `;
 
 /** Parses `--model name=inputPerMTok,outputPerMTok`. Exported for tests. */
@@ -159,6 +196,7 @@ export function parseInitArgs(args: string[]): ParseInitArgsResult {
 
   const needsValue = new Set([
     "--port",
+    "--upstream-type",
     "--upstream-url",
     "--model",
     "--monthly-usd",
@@ -198,6 +236,13 @@ export function parseInitArgs(args: string[]): ParseInitArgsResult {
             return { error: `invalid --port value: "${value}" (must be a positive integer <= 65535)` };
           }
           overrides.port = n;
+          break;
+        }
+        case "--upstream-type": {
+          if (value !== "anthropic" && value !== "bedrock") {
+            return { error: `invalid --upstream-type value: "${value}" (must be "anthropic" or "bedrock")` };
+          }
+          overrides.upstreamType = value;
           break;
         }
         case "--upstream-url": {
@@ -288,6 +333,7 @@ export function parseInitArgs(args: string[]): ParseInitArgsResult {
 
 interface Answers {
   port: number;
+  upstreamType: UpstreamType;
   baseUrl: string;
   models: Record<string, ModelPricing>;
   monthlyUsd: number;
@@ -300,12 +346,16 @@ interface Answers {
 }
 
 /** The set of answers `--yes` writes: sensible defaults, identical in shape
- * to sekimori.config.example.json. */
-function defaultAnswers(): Answers {
+ * to sekimori.config.example.json when upstreamType is "anthropic" (the
+ * overall default). Passing "bedrock" swaps baseUrl and the default model
+ * entry to their Bedrock equivalents (issue #17) - see
+ * defaultBaseUrlFor/defaultModelNameFor. */
+function defaultAnswers(upstreamType: UpstreamType = "anthropic"): Answers {
   return {
     port: 8787,
-    baseUrl: "https://api.anthropic.com",
-    models: { [DEFAULT_MODEL_NAME]: { ...DEFAULT_MODEL_PRICING } },
+    upstreamType,
+    baseUrl: defaultBaseUrlFor(upstreamType),
+    models: { [defaultModelNameFor(upstreamType)]: { ...DEFAULT_MODEL_PRICING } },
     monthlyUsd: 30,
     defaultDailyPerTokenUsd: 0.5,
     requestsPerMinute: 10,
@@ -320,10 +370,13 @@ function defaultAnswers(): Answers {
  * non-interactive) path: unflagged settings keep their default, flagged
  * settings take the flag's value. `storePath` is only meaningful when the
  * resulting store type is "file" - buildConfigObject already blanks it out
- * for "memory", so no special-casing is needed here. */
+ * for "memory", so no special-casing is needed here. `defaults` must
+ * already have been computed with the resolved upstreamType (see
+ * runInit/defaultAnswers) so that baseUrl/models default correctly. */
 function applyOverrides(defaults: Answers, overrides: InitFlagOverrides): Answers {
   return {
     port: overrides.port ?? defaults.port,
+    upstreamType: overrides.upstreamType ?? defaults.upstreamType,
     baseUrl: overrides.upstreamUrl ?? defaults.baseUrl,
     models: overrides.models ?? defaults.models,
     monthlyUsd: overrides.monthlyUsd ?? defaults.monthlyUsd,
@@ -340,7 +393,7 @@ function applyOverrides(defaults: Answers, overrides: InitFlagOverrides): Answer
 function buildConfigObject(answers: Answers): Record<string, unknown> {
   return {
     port: answers.port,
-    upstream: { baseUrl: answers.baseUrl, apiKeyEnv: API_KEY_ENV },
+    upstream: { baseUrl: answers.baseUrl, apiKeyEnv: defaultApiKeyEnvFor(answers.upstreamType), type: answers.upstreamType },
     models: answers.models,
     budget: { monthlyUsd: answers.monthlyUsd, defaultDailyPerTokenUsd: answers.defaultDailyPerTokenUsd },
     rateLimit: { requestsPerMinute: answers.requestsPerMinute },
@@ -421,7 +474,12 @@ async function promptYesNo(rl: Rl, output: NodeJS.WritableStream, question: stri
   }
 }
 
-async function promptModels(rl: Rl, output: NodeJS.WritableStream): Promise<Record<string, ModelPricing>> {
+async function promptModels(
+  rl: Rl,
+  output: NodeJS.WritableStream,
+  upstreamType: UpstreamType,
+): Promise<Record<string, ModelPricing>> {
+  const defaultModelName = defaultModelNameFor(upstreamType);
   output.write("\nModel allow list (also the price table used for budget accounting).\n");
   output.write(
     "NOTE: the prices below (including the default model's) are REFERENCE VALUES shipped with sekimori -" +
@@ -434,23 +492,23 @@ async function promptModels(rl: Rl, output: NodeJS.WritableStream): Promise<Reco
   const includeDefault = await promptYesNo(
     rl,
     output,
-    `Include the default model "${DEFAULT_MODEL_NAME}" (reference price: input $${DEFAULT_MODEL_PRICING.inputPerMTok}/MTok, output $${DEFAULT_MODEL_PRICING.outputPerMTok}/MTok)?`,
+    `Include the default model "${defaultModelName}" (reference price: input $${DEFAULT_MODEL_PRICING.inputPerMTok}/MTok, output $${DEFAULT_MODEL_PRICING.outputPerMTok}/MTok)?`,
     true,
   );
   if (includeDefault) {
     const inputPerMTok = await promptPositiveNumber(
       rl,
       output,
-      `  input price USD/MTok for ${DEFAULT_MODEL_NAME}`,
+      `  input price USD/MTok for ${defaultModelName}`,
       DEFAULT_MODEL_PRICING.inputPerMTok,
     );
     const outputPerMTok = await promptPositiveNumber(
       rl,
       output,
-      `  output price USD/MTok for ${DEFAULT_MODEL_NAME}`,
+      `  output price USD/MTok for ${defaultModelName}`,
       DEFAULT_MODEL_PRICING.outputPerMTok,
     );
-    models[DEFAULT_MODEL_NAME] = { inputPerMTok, outputPerMTok };
+    models[defaultModelName] = { inputPerMTok, outputPerMTok };
   }
 
   for (;;) {
@@ -465,8 +523,8 @@ async function promptModels(rl: Rl, output: NodeJS.WritableStream): Promise<Reco
     // Fail-closed: models is the allow list, and validateConfig rejects an
     // empty one. Rather than loop the user forever, fall back to the
     // default model so init always produces a config that starts.
-    output.write(`  (at least one model is required - adding the default model "${DEFAULT_MODEL_NAME}")\n`);
-    models[DEFAULT_MODEL_NAME] = { ...DEFAULT_MODEL_PRICING };
+    output.write(`  (at least one model is required - adding the default model "${defaultModelName}")\n`);
+    models[defaultModelName] = { ...DEFAULT_MODEL_PRICING };
   }
 
   return models;
@@ -479,15 +537,28 @@ function ack(output: NodeJS.WritableStream, label: string, value: string, flag: 
 }
 
 async function promptAll(rl: Rl, output: NodeJS.WritableStream, overrides: InitFlagOverrides): Promise<Answers> {
-  const defaults = defaultAnswers();
-
   let port: number;
   if (overrides.port !== undefined) {
     port = overrides.port;
     ack(output, "port", String(port), "--port");
   } else {
-    port = await promptPositiveNumber(rl, output, "port", defaults.port, { integer: true, max: 65535 });
+    port = await promptPositiveNumber(rl, output, "port", defaultAnswers().port, { integer: true, max: 65535 });
   }
+
+  // Upstream type is asked right before (and determines the default for)
+  // the upstream base URL question (issue #17). Once resolved, recompute
+  // defaults so baseUrl/models below offer the right provider's defaults.
+  let upstreamType: UpstreamType;
+  if (overrides.upstreamType !== undefined) {
+    upstreamType = overrides.upstreamType;
+    ack(output, "upstream type", upstreamType, "--upstream-type");
+  } else {
+    upstreamType = (await promptChoice(rl, output, "upstream type: anthropic or bedrock", "anthropic", [
+      "anthropic",
+      "bedrock",
+    ])) as UpstreamType;
+  }
+  const defaults = defaultAnswers(upstreamType);
 
   let baseUrl: string;
   if (overrides.upstreamUrl !== undefined) {
@@ -502,7 +573,7 @@ async function promptAll(rl: Rl, output: NodeJS.WritableStream, overrides: InitF
     models = overrides.models;
     ack(output, "models", Object.keys(models).join(", "), "--model");
   } else {
-    models = await promptModels(rl, output);
+    models = await promptModels(rl, output, upstreamType);
   }
 
   let monthlyUsd: number;
@@ -590,6 +661,7 @@ async function promptAll(rl: Rl, output: NodeJS.WritableStream, overrides: InitF
 
   return {
     port,
+    upstreamType,
     baseUrl,
     models,
     monthlyUsd,
@@ -637,7 +709,11 @@ function validateGeneratedConfig(configObject: Record<string, unknown>, apiKeyEn
   }
 }
 
-function printNextSteps(output: NodeJS.WritableStream, path: string): void {
+function printNextSteps(output: NodeJS.WritableStream, path: string, apiKeyEnv: string): void {
+  const keyExportLine =
+    apiKeyEnv === BEDROCK_API_KEY_ENV
+      ? `       export ${apiKeyEnv}=<your Bedrock API key>   # see docs/configuration.md, "Using Amazon Bedrock"`
+      : `       export ${apiKeyEnv}=sk-ant-...      # your real upstream API key`;
   output.write(
     [
       "",
@@ -649,7 +725,7 @@ function printNextSteps(output: NodeJS.WritableStream, path: string): void {
       "     (or with openssl: openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')",
       "",
       "  2. Export the required environment variables (never written to the config file):",
-      "       export ANTHROPIC_API_KEY=sk-ant-...      # your real upstream API key",
+      keyExportLine,
       "       export SEKIMORI_ADMIN_KEY=<the admin key from step 1>",
       "",
       "  3. Start sekimori:",
@@ -700,11 +776,14 @@ export async function runInit(args: string[], io: InitIO): Promise<number> {
     return 1;
   }
 
-  const answers = yes ? applyOverrides(defaultAnswers(), overrides) : await runPrompts(io, overrides);
+  const answers = yes
+    ? applyOverrides(defaultAnswers(overrides.upstreamType ?? "anthropic"), overrides)
+    : await runPrompts(io, overrides);
   const configObject = buildConfigObject(answers);
+  const apiKeyEnv = defaultApiKeyEnvFor(answers.upstreamType);
 
   try {
-    validateGeneratedConfig(configObject, API_KEY_ENV);
+    validateGeneratedConfig(configObject, apiKeyEnv);
   } catch (err) {
     io.output.write(`[sekimori init] generated config failed validation: ${(err as Error).message}\n`);
     io.output.write("  This is a bug in sekimori init - please report it. No file was written.\n");
@@ -718,7 +797,7 @@ export async function runInit(args: string[], io: InitIO): Promise<number> {
     return 1;
   }
 
-  printNextSteps(io.output, path);
+  printNextSteps(io.output, path, apiKeyEnv);
   return 0;
 }
 

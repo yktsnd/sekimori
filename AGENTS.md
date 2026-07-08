@@ -80,7 +80,8 @@ accepts.
    npx tsx src/main.ts init --yes [path]   # exit 0, writes path (default ./sekimori.config.json)
    ```
 
-   Every setting also has a flag (`--port`, `--upstream-url`, `--model
+   Every setting also has a flag (`--port`, `--upstream-type
+   anthropic|bedrock`, `--upstream-url`, `--model
    name=inputPerMTok,outputPerMTok` — repeatable, replaces the default
    model list entirely once given at least once — `--monthly-usd`,
    `--daily-usd`, `--rate-limit`, `--store file|memory`, `--store-path`,
@@ -94,6 +95,13 @@ accepts.
    npx tsx src/main.ts init --yes --port 3000 \
      --model claude-haiku-4-5-20251001=1,5 --monthly-usd 10 \
      --cors-origin https://example.com
+   ```
+
+   To route through Amazon Bedrock instead of calling Anthropic directly
+   (e.g. to spend existing AWS credits):
+
+   ```bash
+   npx tsx src/main.ts init --yes --upstream-type bedrock
    ```
 
 2. **Write the JSON yourself** against
@@ -114,6 +122,16 @@ accepts.
    - `store`: use `"file"` for anything that must survive a restart
      (budget accounting resets to zero with `"memory"` — that weakens the
      cap; prefer `file` in production).
+   - `upstream.type: "bedrock"`: routes through Amazon Bedrock instead of
+     Anthropic directly. **Set `"stream": false` in every client** (see
+     the reference client's `CONFIG.stream` in
+     [`examples/chat.html`](examples/chat.html)) — Bedrock streaming isn't
+     implemented yet, and sekimori rejects `"stream": true` with `400`
+     fail-closed rather than silently ignoring it. The upstream key env
+     var is conventionally `AWS_BEARER_TOKEN_BEDROCK` (what `sekimori init
+     --upstream-type bedrock` writes into `upstream.apiKeyEnv`), and model
+     access for the model(s) you list must be enabled in the AWS console
+     before first use (opt-in per model, per account/region).
 
 ## Verify (before handing the URL to anyone)
 

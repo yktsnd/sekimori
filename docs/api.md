@@ -18,7 +18,8 @@ The core proxy endpoint — Anthropic Messages API compatible, streaming
 1. Bearer token check (missing / unknown / revoked → `401 authentication_error`)
 2. Rate limit (exceeded → `429 rate_limit_error`, with `Retry-After`)
 3. Body validation: `model` must be in the config allowlist (else `403`),
-   `max_tokens` must be a positive integer (else `400`)
+   `max_tokens` must be a positive integer (else `400`); with a Bedrock
+   upstream, `"stream": true` is also rejected here (`400`, see below)
 4. If `pinnedSystemPrompt` is configured, the `system` field is force-replaced
 5. Budget precheck (would-exceed → `429 budget_exceeded_error`, with `Retry-After`)
 6. Forward upstream, relay the response (SSE is relayed byte-for-byte),
@@ -37,6 +38,13 @@ curl -N -X POST http://localhost:8787/v1/messages \
   -H "Content-Type: application/json" \
   -d '{"model":"claude-haiku-4-5-20251001","max_tokens":100,"stream":true,"messages":[{"role":"user","content":"hi"}]}'
 ```
+
+With a Bedrock upstream (`upstream.type: "bedrock"`, see
+[docs/configuration.md](configuration.md)), `"stream": true` returns `400
+invalid_request_error` instead of streaming — rejected at the same body
+validation stage as `max_tokens`, before any budget is consumed. This holds
+until eventstream → SSE transcoding lands (see [ROADMAP.md](../ROADMAP.md),
+"Later"); until then, set `"stream": false` against a bedrock upstream.
 
 ### `GET /v1/usage`
 

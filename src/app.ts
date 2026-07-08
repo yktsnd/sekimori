@@ -201,6 +201,22 @@ export function createApp(deps: AppDeps): Hono {
       return c.json(errorBody("invalid_request_error", "max_tokens must be a positive integer"), 400);
     }
 
+    // Bedrock upstream: streaming is not implemented yet (eventstream -> SSE
+    // transcoding is a ROADMAP "Later" item). Reject here - same body
+    // validation stage as max_tokens above - so this fails BEFORE the budget
+    // precheck and BEFORE any upstream call: no budget is consumed for a
+    // request that was never going to be forwarded.
+    if (config.upstream.type === "bedrock" && parsedBody.stream === true) {
+      finish(400);
+      return c.json(
+        errorBody(
+          "invalid_request_error",
+          'streaming is not yet supported with upstream.type "bedrock" - set "stream": false (see ROADMAP.md)',
+        ),
+        400,
+      );
+    }
+
     // 4. Force-replace system when pinnedSystemPrompt is configured
     const payload: Record<string, unknown> = { ...parsedBody };
     if (config.pinnedSystemPrompt !== null) {
@@ -243,7 +259,7 @@ export function createApp(deps: AppDeps): Hono {
     let forwardResult;
     try {
       forwardResult = await forwardMessages(
-        { baseUrl: config.upstream.baseUrl, apiKey: upstreamApiKey },
+        { baseUrl: config.upstream.baseUrl, apiKey: upstreamApiKey, type: config.upstream.type },
         payload,
         isStreamRequested,
       );

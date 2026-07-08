@@ -7,6 +7,23 @@ All notable changes to sekimori are documented here. The format follows
 ## [Unreleased]
 
 ### Added — v0.4 "owner-ready"
+- Amazon Bedrock upstream (`upstream.type: "bedrock"`, issue #17):
+  Bearer-authenticated, non-streaming requests to Bedrock's `InvokeModel`
+  endpoint (`POST {baseUrl}/model/{model}/invoke`) with the documented body
+  transform (drops `model`/`stream`, adds `"anthropic_version":
+  "bedrock-2023-05-31"`); everything else (model allowlist, budget
+  accounting, rate limiting, pinned system prompt) behaves exactly as with
+  the Anthropic-direct upstream, and the Anthropic path is byte-for-byte
+  unchanged. `"stream": true` against a bedrock upstream is rejected with
+  `400 invalid_request_error` at the same body-validation stage as
+  `max_tokens`, before any budget is consumed (fail-closed; eventstream →
+  SSE transcoding is a ROADMAP "Later" item). `sekimori init
+  --upstream-type anthropic|bedrock` (plus the matching interactive
+  prompt) writes the Bedrock defaults (`bedrock-runtime` endpoint,
+  `AWS_BEARER_TOKEN_BEDROCK`, a Bedrock-style inference-profile model id)
+  and next-steps text; `examples/chat.html` gained a `CONFIG.stream` toggle
+  so the reference client can talk to a Bedrock upstream non-streaming.
+  Zero new dependencies.
 - Owner guide (`docs/owner-guide.md` / `docs/owner-guide.ja.md`): the
   first document addressed to the app's owner rather than a developer or
   agent — explains from zero what an API key and hosting are, how to get

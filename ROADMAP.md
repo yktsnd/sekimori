@@ -70,7 +70,7 @@ account?", "can I use my AWS Bedrock free credit?") — see
       one (Anthropic direct **or** Amazon Bedrock, to use existing AWS
       credits), what hosting is, cost ballparks, safe key handover, what
       stays the owner's decision, FAQ; linked from READMEs and AGENTS.md
-- [ ] Amazon Bedrock upstream (`upstream.type: "bedrock"`): Bearer API-key
+- [x] Amazon Bedrock upstream (`upstream.type: "bedrock"`): Bearer API-key
       auth (`AWS_BEARER_TOKEN_BEDROCK`), `/model/<id>/invoke` with the
       documented body transform, same budget accounting; **streaming
       requests rejected fail-closed** with a clear error (eventstream→SSE

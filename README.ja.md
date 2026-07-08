@@ -101,7 +101,7 @@ npm run test:pack # tarball を作って新規インストールし、実際の 
 
 ## LiteLLM で足りる人へ
 
-複数プロバイダ統合・チーム運用・Postgres ベースの予算管理が要るなら [LiteLLM Proxy](https://github.com/BerriAI/litellm) の方が適している。sekimori はその手前、「Anthropic だけ・個人が身内に公開するだけ・依存は hono だけ」という一点に絞った道具。
+複数プロバイダ統合・チーム運用・Postgres ベースの予算管理が要るなら [LiteLLM Proxy](https://github.com/BerriAI/litellm) の方が適している。sekimori はその手前、「Claude 専用(Anthropic 直結または Amazon Bedrock)・個人が身内に公開するだけ・依存は hono だけ」という一点に絞った道具。
 
 ## 実装しないこと(非目標)
 

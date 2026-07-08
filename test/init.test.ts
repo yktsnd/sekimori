@@ -187,6 +187,27 @@ test("init: parseInitArgs rejects an invalid --upstream-url", () => {
   assert.ok("error" in parsed);
 });
 
+// ---------------------------------------------------------------------------
+// --upstream-type (issue #17: Amazon Bedrock upstream)
+// ---------------------------------------------------------------------------
+
+test("init: parseInitArgs accepts --upstream-type anthropic or bedrock", () => {
+  const anthropic = parseInitArgs(["--upstream-type", "anthropic"]);
+  assert.ok(!("error" in anthropic) && !("help" in anthropic));
+  if ("error" in anthropic || "help" in anthropic) return;
+  assert.equal(anthropic.overrides.upstreamType, "anthropic");
+
+  const bedrock = parseInitArgs(["--upstream-type", "bedrock"]);
+  assert.ok(!("error" in bedrock) && !("help" in bedrock));
+  if ("error" in bedrock || "help" in bedrock) return;
+  assert.equal(bedrock.overrides.upstreamType, "bedrock");
+});
+
+test("init: parseInitArgs rejects an invalid --upstream-type value", () => {
+  const parsed = parseInitArgs(["--upstream-type", "openai"]);
+  assert.ok("error" in parsed);
+});
+
 test("init: parseInitArgs rejects a malformed --model spec", () => {
   const parsed = parseInitArgs(["--model", "just-a-name"]);
   assert.ok("error" in parsed);
@@ -402,6 +423,64 @@ test("init: --yes with --model given replaces the default model list entirely", 
   assert.ok(!("claude-haiku-4-5-20251001" in parsed.models));
 });
 
+test("init: --yes --upstream-type bedrock writes the bedrock defaults (baseUrl, apiKeyEnv, model id)", async (t) => {
+  const dir = tmpDir("sekimori-init-bedrock-");
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const cfgPath = join(dir, "sekimori.config.json");
+
+  const exitCode = await runInit([cfgPath, "--yes", "--upstream-type", "bedrock"], silentIO());
+  assert.equal(exitCode, 0);
+  assert.ok(existsSync(cfgPath));
+
+  const parsed = JSON.parse(readFileSync(cfgPath, "utf8"));
+  assert.equal(parsed.upstream.type, "bedrock");
+  assert.equal(parsed.upstream.baseUrl, "https://bedrock-runtime.us-east-1.amazonaws.com");
+  assert.equal(parsed.upstream.apiKeyEnv, "AWS_BEARER_TOKEN_BEDROCK");
+  assert.deepEqual(parsed.models, {
+    "global.anthropic.claude-haiku-4-5-20251001-v1:0": { inputPerMTok: 1.0, outputPerMTok: 5.0 },
+  });
+
+  // Generated config passes real validateConfig once the bedrock env vars are set.
+  t.after(resetRealEnv);
+  const ORIGINAL_BEDROCK_KEY = process.env.AWS_BEARER_TOKEN_BEDROCK;
+  t.after(() => {
+    if (ORIGINAL_BEDROCK_KEY === undefined) delete process.env.AWS_BEARER_TOKEN_BEDROCK;
+    else process.env.AWS_BEARER_TOKEN_BEDROCK = ORIGINAL_BEDROCK_KEY;
+  });
+  process.env.AWS_BEARER_TOKEN_BEDROCK = "dummy";
+  process.env.SEKIMORI_ADMIN_KEY = "admin-test-dummy";
+  assert.doesNotThrow(() => validateConfig(parsed));
+});
+
+test("init: --yes --upstream-type anthropic (or omitted) keeps the anthropic defaults unchanged", async (t) => {
+  const dir = tmpDir("sekimori-init-anthropic-explicit-");
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const cfgPath = join(dir, "sekimori.config.json");
+
+  const exitCode = await runInit([cfgPath, "--yes", "--upstream-type", "anthropic"], silentIO());
+  assert.equal(exitCode, 0);
+  const parsed = JSON.parse(readFileSync(cfgPath, "utf8"));
+  assert.equal(parsed.upstream.type, "anthropic");
+  assert.equal(parsed.upstream.baseUrl, "https://api.anthropic.com");
+  assert.equal(parsed.upstream.apiKeyEnv, "ANTHROPIC_API_KEY");
+  assert.ok("claude-haiku-4-5-20251001" in parsed.models);
+});
+
+test("init: an invalid --upstream-type value is rejected with non-zero exit and nothing written", async (t) => {
+  const dir = tmpDir("sekimori-init-bedrock-invalid-");
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const cfgPath = join(dir, "sekimori.config.json");
+
+  const captured = capturingOutput();
+  const exitCode = await runInit(
+    [cfgPath, "--yes", "--upstream-type", "openai"],
+    silentIO({ output: captured.stream }),
+  );
+  assert.notEqual(exitCode, 0);
+  assert.ok(!existsSync(cfgPath));
+  assert.match(captured.text(), /--upstream-type/);
+});
+
 test("init: --yes without flags still writes pure defaults (regression guard)", async (t) => {
   const dir = tmpDir("sekimori-init-flags-none-");
   t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -425,6 +504,7 @@ test("init: invalid flag values are rejected with non-zero exit and nothing writ
     ["--store", "s3"],
     ["--upstream-url", "not a url"],
     ["--monthly-usd", "-5"],
+    ["--upstream-type", "openai"],
   ];
 
   for (const flagArgs of cases) {
@@ -471,11 +551,12 @@ test("init: interactive prompts (simulated TTY) accept typed answers and default
   const captured = capturingOutput();
 
   // Scripted answers, one per line, in prompt order:
-  //  port, upstream URL, include-default-model(Y), input price, output price,
+  //  port, upstream type, upstream URL, include-default-model(Y), input price, output price,
   //  add-another-model(empty=stop), monthly budget, daily budget, rate limit,
   //  store type, store path, cors origins, pinned system prompt.
   const answers = [
     "9999", // port
+    "", // upstream type -> default anthropic
     "", // upstream base URL -> default
     "", // include default model? -> default (yes)
     "2.0", // input price override
@@ -531,8 +612,9 @@ test("init: interactive mode pre-answers flagged settings (prints an ack, no pro
 
   // port, models, monthly budget, store type, store path are pre-answered via
   // flags below and must NOT be prompted for. Remaining prompts, in order:
-  // upstream URL, daily budget, rate limit, cors origins, pinned system.
+  // upstream type, upstream URL, daily budget, rate limit, cors origins, pinned system.
   const answers = [
+    "", // upstream type -> default anthropic
     "", // upstream base URL -> default
     "0.75", // daily per-token budget
     "15", // rate limit
@@ -690,5 +772,36 @@ test(
     assert.deepEqual(parsed.models, { "claude-haiku-4-5-20251001": { inputPerMTok: 1, outputPerMTok: 5 } });
     assert.equal(parsed.budget.monthlyUsd, 10);
     assert.deepEqual(parsed.cors.allowedOrigins, ["https://example.com"]);
+  },
+);
+
+test(
+  "init: real CLI - a bedrock config from `init --upstream-type bedrock` passes `doctor` with the bedrock env vars set (issue #17)",
+  { skip: !existsSync(TSX_BIN) },
+  (t) => {
+    const dir = tmpDir("sekimori-init-cli-bedrock-doctor-");
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    const cfgPath = join(dir, "sekimori.config.json");
+
+    const initResult = spawnSync(TSX_BIN, [MAIN_TS, "init", cfgPath, "--yes", "--upstream-type", "bedrock"], {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+      timeout: 20_000,
+    });
+    assert.equal(initResult.status, 0, `stdout: ${initResult.stdout}\nstderr: ${initResult.stderr}`);
+
+    const parsed = JSON.parse(readFileSync(cfgPath, "utf8"));
+    assert.equal(parsed.upstream.type, "bedrock");
+    assert.equal(parsed.upstream.apiKeyEnv, "AWS_BEARER_TOKEN_BEDROCK");
+
+    const doctorResult = spawnSync(TSX_BIN, [MAIN_TS, "doctor", cfgPath, "--json"], {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+      timeout: 20_000,
+      env: { ...process.env, AWS_BEARER_TOKEN_BEDROCK: "dummy", SEKIMORI_ADMIN_KEY: "dummy" },
+    });
+    assert.equal(doctorResult.status, 0, `stdout: ${doctorResult.stdout}\nstderr: ${doctorResult.stderr}`);
+    const doctorJson = JSON.parse(doctorResult.stdout) as { ok: boolean };
+    assert.equal(doctorJson.ok, true);
   },
 );

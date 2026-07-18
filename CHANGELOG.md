@@ -78,8 +78,8 @@ All notable changes to sekimori are documented here. The format follows
 - CI covers the declared Node.js 20 minimum, Node.js 22, Linux, macOS, and
   Windows; Node.js 24 is covered on Linux and the legacy POSIX demo is
   exercised there. Production dependency auditing runs in the current-Node
-  CI job. Workflow actions are pinned to immutable full commit SHAs and
-  tracked by Dependabot.
+  CI job. Workflow actions use their Node.js 24 runtime, are pinned to
+  immutable full commit SHAs, and are tracked by Dependabot.
 - Owner and Bedrock guidance no longer promises impossible billing outcomes;
   it directs operators to current Anthropic billing and AWS key/model-access
   guidance and describes static Bedrock API keys as prototype-only.

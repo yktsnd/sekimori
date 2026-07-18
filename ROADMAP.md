@@ -59,7 +59,8 @@ package, and must be re-verified on the exact release commit.
 - [ ] Verify the documented X Direct Message conduct-reporting route accepts a
       private message.
 - [x] Enable secret scanning, push protection, Dependabot security updates,
-      read-only default Actions permissions, and full-SHA action pinning.
+      CodeQL Extended, immutable GitHub Releases, read-only default Actions
+      permissions, and full-SHA action pinning.
 - [x] Configure an active default-branch ruleset after the history rewrite:
       require PRs and the five Linux/macOS/Windows CI checks; prevent deletion,
       force pushes, and direct unreviewed releases without requiring a second

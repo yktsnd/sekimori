@@ -79,7 +79,9 @@ All notable changes to sekimori are documented here. The format follows
   Windows; Node.js 24 is covered on Linux and the legacy POSIX demo is
   exercised there. Production dependency auditing runs in the current-Node
   CI job. Workflow actions use their Node.js 24 runtime, are pinned to
-  immutable full commit SHAs, and are tracked by Dependabot.
+  immutable full commit SHAs, and are tracked by Dependabot. GitHub CodeQL
+  Extended scans JavaScript/TypeScript weekly, and GitHub Releases are
+  immutable once published.
 - Owner and Bedrock guidance no longer promises impossible billing outcomes;
   it directs operators to current Anthropic billing and AWS key/model-access
   guidance and describes static Bedrock API keys as prototype-only.

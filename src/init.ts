@@ -10,7 +10,7 @@
 // (no third-party CLI/prompt library).
 
 import { createInterface } from "node:readline/promises";
-import { renameSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, openSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import {
   normalizeUpstreamBaseUrl,
@@ -824,21 +824,36 @@ function printNextSteps(output: NodeJS.WritableStream, path: string, apiKeyEnv: 
 
 /**
  * Replace a generated config without ever opening the destination for writing.
- * A same-directory exclusive temporary file makes `--force` replace a symlink
- * or hard link itself instead of following it to an unrelated file. Rename is
- * atomic on the filesystems Node supports; a failed rename leaves the previous
- * destination intact and the temporary file is removed best-effort.
+ * A same-directory exclusive temporary file makes `--force` replace the
+ * destination entry instead of following a destination symlink or hard link.
+ * The previous destination remains intact if the rename fails.
  */
 function replaceFileAtomically(path: string, contents: string): void {
   const temporaryPath = `${path}.tmp-${randomUUID()}`;
+  let temporaryFd: number | undefined;
+  let ownsTemporaryPath = false;
   try {
-    writeFileSync(temporaryPath, contents, { flag: "wx", mode: 0o600 });
+    temporaryFd = openSync(temporaryPath, "wx", 0o600);
+    ownsTemporaryPath = true;
+    writeFileSync(temporaryFd, contents);
+    closeSync(temporaryFd);
+    temporaryFd = undefined;
     renameSync(temporaryPath, path);
+    ownsTemporaryPath = false;
   } catch (err) {
-    try {
-      rmSync(temporaryPath, { force: true });
-    } catch {
-      // Preserve the original write/rename failure for the operator.
+    if (temporaryFd !== undefined) {
+      try {
+        closeSync(temporaryFd);
+      } catch {
+        // Preserve the original write/rename failure for the operator.
+      }
+    }
+    if (ownsTemporaryPath) {
+      try {
+        rmSync(temporaryPath, { force: true });
+      } catch {
+        // Preserve the original write/rename failure for the operator.
+      }
     }
     throw err;
   }

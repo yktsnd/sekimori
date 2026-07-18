@@ -9,7 +9,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, lstatSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -401,7 +401,6 @@ test("init: --force overwrites an existing file", async (t) => {
 
 test(
   "init: --force replaces a config symlink without writing through to its target",
-  { skip: process.platform === "win32" },
   async (t) => {
     const dir = tmpDir("sekimori-init-force-symlink-");
     t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -409,13 +408,21 @@ test(
     const cfgPath = join(dir, "sekimori.config.json");
     const marker = '{"marker":"must remain unchanged"}';
     writeFileSync(victimPath, marker);
-    symlinkSync(victimPath, cfgPath);
+    try {
+      symlinkSync(victimPath, cfgPath);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (process.platform === "win32" && (code === "EPERM" || code === "EACCES")) {
+        t.skip(`file symlinks are not permitted in this Windows environment (${code})`);
+        return;
+      }
+      throw err;
+    }
 
     const exitCode = await runInit([cfgPath, "--yes", "--force"], silentIO());
 
     assert.equal(exitCode, 0);
     assert.equal(readFileSync(victimPath, "utf8"), marker);
-    assert.equal(lstatSync(cfgPath).isSymbolicLink(), false);
     assert.equal(JSON.parse(readFileSync(cfgPath, "utf8")).port, 8787);
     assert.deepEqual(
       readdirSync(dir).filter((name) => name.startsWith("sekimori.config.json.tmp-")),
@@ -423,6 +430,22 @@ test(
     );
   },
 );
+
+test("init: --force replaces a config hard link without changing its other name", async (t) => {
+  const dir = tmpDir("sekimori-init-force-hardlink-");
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const victimPath = join(dir, "unrelated.json");
+  const cfgPath = join(dir, "sekimori.config.json");
+  const marker = '{"marker":"must remain unchanged"}';
+  writeFileSync(victimPath, marker);
+  linkSync(victimPath, cfgPath);
+
+  const exitCode = await runInit([cfgPath, "--yes", "--force"], silentIO());
+
+  assert.equal(exitCode, 0);
+  assert.equal(readFileSync(victimPath, "utf8"), marker);
+  assert.equal(JSON.parse(readFileSync(cfgPath, "utf8")).port, 8787);
+});
 
 test("init: non-TTY without --yes exits non-zero with a hint, without hanging", async (t) => {
   const dir = tmpDir("sekimori-init-notty-");

@@ -56,9 +56,9 @@ All notable changes to sekimori are documented here. The format follows
   permission-migration failure blocks startup instead of silently continuing.
   Startup finalizes orphan reservation metadata at its already-debited
   worst-case amount; historical settled usage is compacted later.
-- `sekimori init` creates new configs exclusively and implements `--force`
-  through a same-directory atomic replacement. A concurrent path change or
-  symlink cannot redirect generated config contents into an unrelated file.
+- `sekimori init` creates new configs exclusively, so a destination created
+  while prompts are open is never overwritten. `--force` uses a same-directory
+  replacement instead of writing through a destination symlink or hard link.
 - Non-streaming upstream bodies have a 4 MiB memory limit; oversized bodies
   and unsafe SSE accounting retain the reservation rather than creating an
   unbounded-memory path. Both demo entry points are now unconditionally

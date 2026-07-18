@@ -61,7 +61,7 @@ package, and must be re-verified on the exact release commit.
       private message.
 - [x] Enable secret scanning, push protection, Dependabot security updates,
       CodeQL Extended, immutable GitHub Releases, read-only default Actions
-      permissions, and full-SHA action pinning.
+      permissions, GitHub-owned Actions only, and full-SHA action pinning.
 - [x] Configure an active default-branch ruleset after the history rewrite:
       require PRs, the five Linux/macOS/Windows CI checks, and the CodeQL
       security gate; prevent deletion, force pushes, and direct unreviewed

@@ -56,8 +56,9 @@ It prevents a package upload from being mistaken for a trustworthy launch.
   remains zero so a single maintainer is not locked out; verified on
   2026-07-18.
 - [x] Confirm GitHub Actions, Dependabot security updates, secret scanning, and
-  push protection are enabled. Actions default to read-only permissions and
-  third-party actions must use full commit SHAs; verified on 2026-07-18.
+  push protection are enabled. Actions default to read-only permissions, only
+  GitHub-owned Actions are allowed, and every action reference must use a full
+  commit SHA; verified on 2026-07-18.
 - [x] Enable weekly GitHub CodeQL default setup for JavaScript/TypeScript with
   the Extended query suite and remote threat model. Enable immutable GitHub
   Releases so a published release, its tag, and assets cannot be silently

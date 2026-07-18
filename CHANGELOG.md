@@ -12,7 +12,7 @@ All notable changes to sekimori are documented here. The format follows
 - Public-facing docs now distinguish the public source repository from an
   unpublished software release; `RELEASING.md` records the completed
   visibility/history checks and the remaining externally controlled gates
-  (default-branch merge/protection, private-reporting route tests,
+  (default-branch merge, private-reporting route tests,
   social-preview upload, real HTTPS deployment, npm publish and tag).
   `CODE_OF_CONDUCT.md`, `SUPPORT.md`, `GOVERNANCE.md`, a support
   issue template, and Dependabot configuration make the participation model

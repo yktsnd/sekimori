@@ -6,7 +6,8 @@ It prevents a package upload from being mistaken for a trustworthy launch.
 
 ## Before a first public release
 
-- [ ] Merge the reviewed release candidate into the default branch. The
+- [ ] Review and merge [release-candidate PR #18](https://github.com/yktsnd/sekimori/pull/18)
+  into the default branch. Its five required CI jobs passed on 2026-07-18. The
   public default branch must contain the current README, security policy,
   CI, docs, and tests; do not make an older branch public by accident.
 - [x] The maintainer deliberately made the repository public on 2026-07-18.
@@ -47,9 +48,11 @@ It prevents a package upload from being mistaken for a trustworthy launch.
 - [ ] Verify that the private X Direct Message route documented in
   [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) accepts a message before opening
   participation to strangers.
-- [ ] Protect the default branch: require a passing CI run and review policy
-  appropriate to the maintainer's workflow; prevent force pushes and direct
-  unreviewed releases.
+- [x] Protect the default branch. Active ruleset `Protect main` requires a
+  pull request, resolved review conversations, and passing Linux Node.js
+  20/22/24, macOS, and Windows CI checks; it prevents branch deletion,
+  force pushes, and direct unreviewed releases. Approval count remains zero
+  so a single maintainer is not locked out; verified on 2026-07-18.
 - [x] Confirm GitHub Actions, Dependabot security updates, secret scanning, and
   push protection are enabled. Actions default to read-only permissions and
   third-party actions must use full commit SHAs; verified on 2026-07-18.

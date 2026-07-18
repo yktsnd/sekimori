@@ -504,7 +504,6 @@ export function createSseRelay(upstreamStream: ReadableStream<Uint8Array>, idleT
         // A simultaneous downstream cancellation may already own the stream.
       }
     }, idleTimeoutMs);
-    idleTimer.unref?.();
   };
 
   const stream = new ReadableStream<Uint8Array>({

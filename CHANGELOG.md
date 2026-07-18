@@ -44,7 +44,8 @@ All notable changes to sekimori are documented here. The format follows
   Configured requests/minute is bounded at 10,000, and a process-wide limit
   rejects message call 257 while 256 are active across all invites.
   SSE accounting uses one backpressure-aware bounded relay/parser, treats
-  truncation/cancellation/protocol anomalies conservatively, and emits
+  truncation/cancellation/protocol anomalies conservatively, keeps its idle
+  timeout live until the stream settles, and emits
   `Cache-Control: no-cache, no-store, no-transform`. All routes use
   `Cache-Control: no-store` and structured not-found/errors.
 - File-store snapshots use a temporary file requesting mode `0600`, file sync,

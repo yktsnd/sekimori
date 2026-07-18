@@ -101,14 +101,16 @@ repository's manual `Publish npm` workflow is the intended path: it refuses a
 development version, a non-`main` ref, a mismatched confirmation, a dirty
 checkout, or a missing changelog entry, and requests npm provenance.
 
-Create and protect a GitHub Environment named `npm-publish` before using that
-workflow. The first publish may use a short-lived granular `NPM_TOKEN` stored
-only in that Environment. Once the npm package exists, configure npm Trusted
-Publishing for the exact repository, `publish.yml` workflow filename, and
-`npm-publish` environment, allowing `npm stage publish`; then delete the
-GitHub secret and revoke the token. Keep two-factor authentication enabled on
-the maintainer account. Later workflow runs stage the artifact; a maintainer
-must inspect and approve that staged package with 2FA before it becomes public.
+The `npm-publish` GitHub Environment was configured on 2026-07-18 with a
+required `yktsnd` reviewer and protected-branch-only deployment policy. Confirm
+those controls still exist before first use. The first publish may use a
+short-lived granular `NPM_TOKEN` stored only in that Environment. Once the npm
+package exists, configure npm Trusted Publishing for the exact repository,
+`publish.yml` workflow filename, and `npm-publish` environment, allowing
+`npm stage publish`; then delete the GitHub secret and revoke the token. Keep
+two-factor authentication enabled on the maintainer account. Later workflow
+runs stage the artifact; a maintainer must inspect and approve that staged
+package with 2FA before it becomes public.
 
 1. Reconfirm npm package-name availability and accept the recorded naming
    risk. The maintainer approved `0.2.0` as the first public version.

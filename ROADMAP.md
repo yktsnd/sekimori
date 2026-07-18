@@ -67,6 +67,8 @@ package, and must be re-verified on the exact release commit.
       security gate; prevent deletion, force pushes, and direct unreviewed
       releases without requiring a second maintainer's approval.
 - [x] Add accurate GitHub About text and repository topics.
+- [x] Protect the `npm-publish` GitHub Environment with a `yktsnd` approval
+      gate and limit it to protected branches.
 - [x] Prepare a 1280 x 640, sub-1 MB social-preview asset in `.github/`.
 - [ ] Upload the social preview and verify the community profile from a
       signed-out view.

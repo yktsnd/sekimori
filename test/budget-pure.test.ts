@@ -6,7 +6,9 @@ import {
   computeActualCost,
   dateKeyUTC,
   estimateInputTokens,
+  estimateRequestTokens,
   estimateWorstCost,
+  INPUT_TOKEN_SAFETY_MARGIN,
   monthKeyUTC,
   precheckBudget,
   retryAfterSecondsForReason,
@@ -27,12 +29,22 @@ test("estimateInputTokens: null/undefined system contributes nothing", () => {
   assert.equal(estimateInputTokens(messages, null), estimateInputTokens(messages, undefined));
 });
 
+test("estimateRequestTokens: conservatively counts every UTF-8 request byte", () => {
+  const request = {
+    model: "test-model",
+    max_tokens: 10,
+    messages: [{ role: "user", content: "hi" }],
+    tools: [{ name: "large_schema", description: "x".repeat(100) }],
+  };
+  assert.equal(estimateRequestTokens(request), Buffer.byteLength(JSON.stringify(request), "utf8"));
+});
+
 test("estimateWorstCost: input estimate + max_tokens output at given pricing", () => {
   const pricing = { inputPerMTok: 2, outputPerMTok: 10 };
   const messages = [{ role: "user", content: "x".repeat(4000) }];
   const worst = estimateWorstCost({ messages, system: null, maxTokens: 1000, pricing });
   const inputTokens = estimateInputTokens(messages, null);
-  const expected = (inputTokens / 1_000_000) * 2 + (1000 / 1_000_000) * 10;
+  const expected = ((inputTokens + INPUT_TOKEN_SAFETY_MARGIN) / 1_000_000) * 2 + (1000 / 1_000_000) * 10;
   assert.ok(Math.abs(worst - expected) < 1e-12);
 });
 
@@ -75,7 +87,7 @@ test("precheckBudget: allows when comfortably under both limits", () => {
   assert.deepEqual(decision, { allowed: true });
 });
 
-test("precheckBudget: exact boundary (equal to limit) is rejected, not just over", () => {
+test("precheckBudget: exact boundary is allowed; only over-limit is rejected", () => {
   const decision = precheckBudget({
     worstCost: 10,
     tokenTodayUsd: 0,

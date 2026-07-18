@@ -24,7 +24,7 @@ test("bedrock: non-streaming round trip - URL, headers, body transform, response
   t.after(() => upstream.close());
 
   const config = buildTestConfig(upstream.baseUrl, {
-    upstream: { baseUrl: upstream.baseUrl, apiKeyEnv: "TEST_UPSTREAM_KEY_ENV", type: "bedrock" },
+    upstream: { baseUrl: upstream.baseUrl, apiKeyEnv: "TEST_UPSTREAM_KEY_ENV", timeoutMs: 120_000, type: "bedrock" },
     models: { "global.anthropic.claude-haiku-4-5-20251001-v1:0": { inputPerMTok: 1, outputPerMTok: 5 } },
   });
   const { app, adminKey } = buildApp(config);
@@ -83,7 +83,7 @@ test("bedrock: stream:true is rejected fail-closed before any upstream call or b
   t.after(() => upstream.close());
 
   const config = buildTestConfig(upstream.baseUrl, {
-    upstream: { baseUrl: upstream.baseUrl, apiKeyEnv: "TEST_UPSTREAM_KEY_ENV", type: "bedrock" },
+    upstream: { baseUrl: upstream.baseUrl, apiKeyEnv: "TEST_UPSTREAM_KEY_ENV", timeoutMs: 120_000, type: "bedrock" },
     models: { "global.anthropic.claude-haiku-4-5-20251001-v1:0": { inputPerMTok: 1, outputPerMTok: 5 } },
   });
   const { app, adminKey } = buildApp(config);
@@ -139,7 +139,7 @@ test("bedrock: missing usage in the upstream response falls back to worst-cost a
   t.after(() => upstream.close());
 
   const config = buildTestConfig(upstream.baseUrl, {
-    upstream: { baseUrl: upstream.baseUrl, apiKeyEnv: "TEST_UPSTREAM_KEY_ENV", type: "bedrock" },
+    upstream: { baseUrl: upstream.baseUrl, apiKeyEnv: "TEST_UPSTREAM_KEY_ENV", timeoutMs: 120_000, type: "bedrock" },
     models: { "test-model": { inputPerMTok: 1, outputPerMTok: 5 } },
   });
   const { app, adminKey } = buildApp(config);

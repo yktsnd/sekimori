@@ -53,3 +53,17 @@ test("auth: revoked token returns 401 after previously succeeding", async (t) =>
   const afterRevokeRes = await app.fetch(messagesRequest(issued.token, body));
   assert.equal(afterRevokeRes.status, 401);
 });
+
+test("auth: invite-token usage does not disclose the global monthly budget", async (t) => {
+  const upstream = await startMockUpstream(jsonMessagesHandler({ inputTokens: 1, outputTokens: 1 }));
+  t.after(() => upstream.close());
+  const { app, adminKey } = buildApp(buildTestConfig(upstream.baseUrl));
+  const issued = await issueToken(app, adminKey, { dailyUsd: 1 });
+
+  const res = await app.fetch(new Request("http://localhost/v1/usage", { headers: { Authorization: `Bearer ${issued.token}` } }));
+  assert.equal(res.status, 200);
+  const usage = (await res.json()) as Record<string, unknown>;
+  assert.deepEqual(Object.keys(usage).sort(), ["dailyLimitUsd", "todayUsd"]);
+  assert.equal("monthUsd" in usage, false);
+  assert.equal("monthlyLimitUsd" in usage, false);
+});

@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -14,13 +17,42 @@ jobs:
     timeout-minutes: 10
     strategy:
       matrix:
-        node-version: [20, 22]
+        node-version: [20, 22, 24]
     steps:
-      - uses: actions/checkout@v4
+      # Workflow dependencies are pinned to immutable commits. Dependabot
+      # keeps the release comments and SHAs current.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - run: npm ci
+
+      - if: matrix.node-version == 24
+        run: npm audit --omit=dev --audit-level=high
+
+      - run: npm run typecheck
+
+      - run: npm test
+
+      - run: npm run demo
+
+      - if: matrix.node-version == 20
+        run: bash examples/demo.sh
+
+      - run: npm run test:pack
+
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 20
           cache: npm
 
       - run: npm ci
@@ -29,6 +61,29 @@ jobs:
 
       - run: npm test
 
-      - run: bash examples/demo.sh
+      - run: npm run demo
 
+      - run: npm run test:pack
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm test
+
+      - run: npm run demo
+
+      # The package smoke is Node-only, so this verifies install and startup
+      # from a tarball on Windows too (no Git Bash/curl dependency).
       - run: npm run test:pack

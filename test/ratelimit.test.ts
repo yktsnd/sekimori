@@ -4,6 +4,39 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { startMockUpstream, jsonMessagesHandler } from "./helpers/mock-upstream.js";
 import { buildTestConfig, buildApp, issueToken, messagesRequest } from "./helpers/test-app.js";
+import { RateLimiter } from "../src/ratelimit.js";
+
+test("rate limit: rolling window prevents a 2N burst across a wall-clock minute boundary", () => {
+  const limiter = new RateLimiter(2);
+  assert.equal(limiter.check("token", 59_998).allowed, true);
+  limiter.release("token");
+  assert.equal(limiter.check("token", 59_999).allowed, true);
+  limiter.release("token");
+
+  const boundaryBurst = limiter.check("token", 60_000);
+  assert.equal(boundaryBurst.allowed, false);
+  assert.equal(boundaryBurst.retryAfterSeconds, 60);
+});
+
+test("rate limit: active request slots are bounded and released independently of the rolling count", () => {
+  const limiter = new RateLimiter(2);
+  assert.equal(limiter.check("token", 1_000).allowed, true);
+  assert.equal(limiter.check("token", 1_001).allowed, true);
+  assert.deepEqual(limiter.check("token", 61_001), { allowed: false, retryAfterSeconds: 1 });
+
+  limiter.release("token");
+  assert.equal(limiter.check("token", 61_001).allowed, true);
+});
+
+test("rate limit: process-wide active requests are bounded across invite tokens", () => {
+  const limiter = new RateLimiter(10, 2);
+  assert.equal(limiter.check("token-a", 0).allowed, true);
+  assert.equal(limiter.check("token-b", 0).allowed, true);
+  assert.deepEqual(limiter.check("token-c", 0), { allowed: false, retryAfterSeconds: 1 });
+
+  limiter.release("token-a");
+  assert.equal(limiter.check("token-c", 0).allowed, true);
+});
 
 test("rate limit: (N+1)th request within the same window returns 429 with Retry-After", async (t) => {
   const upstream = await startMockUpstream(jsonMessagesHandler({ inputTokens: 1, outputTokens: 1 }));

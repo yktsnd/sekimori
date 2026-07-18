@@ -11,7 +11,13 @@
 
 import { createInterface } from "node:readline/promises";
 import { existsSync, writeFileSync } from "node:fs";
-import { validateConfig, type SekimoriConfig } from "./config.js";
+import {
+  normalizeUpstreamBaseUrl,
+  validateConfig,
+  validateCorsOrigin,
+  validateListenHost,
+  type SekimoriConfig,
+} from "./config.js";
 import type { ModelPricing } from "./budget.js";
 
 /** The env var name sekimori.config.example.json also uses. Not prompted for
@@ -65,8 +71,10 @@ export interface InitIO {
  * when set, they REPLACE the default entirely (they don't merge with it). */
 export interface InitFlagOverrides {
   port?: number;
+  listenHost?: string;
   upstreamType?: UpstreamType;
   upstreamUrl?: string;
+  upstreamTimeoutMs?: number;
   models?: Record<string, ModelPricing>;
   monthlyUsd?: number;
   dailyUsd?: number;
@@ -88,7 +96,7 @@ export type ParseInitArgsResult = ParsedInitArgs | { error: string } | { help: t
 
 export const INIT_USAGE_LINE =
   "Usage: sekimori init [path] [--force] [--yes] [--help] [--port N] " +
-  "[--upstream-type anthropic|bedrock] [--upstream-url URL] " +
+  "[--listen-host HOST] [--upstream-type anthropic|bedrock] [--upstream-url URL] [--upstream-timeout-ms N] " +
   "[--model name=in,out]... [--monthly-usd N] [--daily-usd N] [--rate-limit N] " +
   "[--store file|memory] [--store-path PATH] [--cors-origin ORIGIN]... [--pinned-system TEXT]";
 
@@ -112,8 +120,12 @@ Flags:
       prompting. Also required when stdin is not a TTY.
   --help, -h
       Show this help and exit.
-  --port N
-      Listen port (default: 8787).
+   --port N
+       Listen port (default: 8787).
+   --listen-host HOST
+       Bind address (default: 127.0.0.1). Use 0.0.0.0 or :: only when a
+       platform or TLS-terminating reverse proxy must reach sekimori over the
+       network; do not expose the plain HTTP listener directly to the internet.
   --upstream-type anthropic|bedrock
       Upstream provider (default: anthropic). "bedrock" sends
       Bearer-authenticated requests to Amazon Bedrock's InvokeModel endpoint
@@ -123,9 +135,13 @@ Flags:
       id), and the env var read for the upstream key
       (AWS_BEARER_TOKEN_BEDROCK instead of ANTHROPIC_API_KEY) - see
       docs/configuration.md, "Using Amazon Bedrock".
-  --upstream-url URL
-      Upstream base URL (default: https://api.anthropic.com, or Bedrock's
-      bedrock-runtime endpoint when --upstream-type bedrock is given).
+   --upstream-url URL
+       Upstream base URL (default: https://api.anthropic.com, or Bedrock's
+       bedrock-runtime endpoint when --upstream-type bedrock is given).
+   --upstream-timeout-ms N
+       Maximum time to wait for upstream response headers (default: 120000,
+       minimum: 1000, maximum: 900000). A timed-out request keeps its
+       worst-case budget reservation.
   --model name=in,out
       Add a model to the allow list / price table (USD per MTok), e.g.
       --model claude-haiku-4-5-20251001=1,5. Repeatable; if given at least
@@ -196,8 +212,10 @@ export function parseInitArgs(args: string[]): ParseInitArgsResult {
 
   const needsValue = new Set([
     "--port",
+    "--listen-host",
     "--upstream-type",
     "--upstream-url",
+    "--upstream-timeout-ms",
     "--model",
     "--monthly-usd",
     "--daily-usd",
@@ -238,6 +256,14 @@ export function parseInitArgs(args: string[]): ParseInitArgsResult {
           overrides.port = n;
           break;
         }
+        case "--listen-host": {
+          try {
+            overrides.listenHost = validateListenHost(value);
+          } catch {
+            return { error: `invalid --listen-host value: "${value}" (must be "localhost" or a literal IPv4/IPv6 address)` };
+          }
+          break;
+        }
         case "--upstream-type": {
           if (value !== "anthropic" && value !== "bedrock") {
             return { error: `invalid --upstream-type value: "${value}" (must be "anthropic" or "bedrock")` };
@@ -247,11 +273,20 @@ export function parseInitArgs(args: string[]): ParseInitArgsResult {
         }
         case "--upstream-url": {
           try {
-            new URL(value);
+            overrides.upstreamUrl = normalizeUpstreamBaseUrl(value);
           } catch {
-            return { error: `invalid --upstream-url value: "${value}" (must be a valid URL)` };
+            return {
+              error: `invalid --upstream-url value: "${value}" (must be an absolute http(s) URL without credentials, query, or fragment)`,
+            };
           }
-          overrides.upstreamUrl = value;
+          break;
+        }
+        case "--upstream-timeout-ms": {
+          const n = Number(value);
+          if (!Number.isSafeInteger(n) || n < 1_000 || n > 15 * 60_000) {
+            return { error: `invalid --upstream-timeout-ms value: "${value}" (must be an integer from 1000 through 900000)` };
+          }
+          overrides.upstreamTimeoutMs = n;
           break;
         }
         case "--model": {
@@ -278,8 +313,8 @@ export function parseInitArgs(args: string[]): ParseInitArgsResult {
         }
         case "--rate-limit": {
           const n = Number(value);
-          if (!Number.isFinite(n) || !(n > 0)) {
-            return { error: `invalid --rate-limit value: "${value}" (must be a positive number)` };
+          if (!Number.isSafeInteger(n) || !(n > 0)) {
+            return { error: `invalid --rate-limit value: "${value}" (must be a positive integer)` };
           }
           overrides.rateLimit = n;
           break;
@@ -292,11 +327,18 @@ export function parseInitArgs(args: string[]): ParseInitArgsResult {
           break;
         }
         case "--store-path": {
+          if (value.trim().length === 0) {
+            return { error: `invalid --store-path value: "${value}" (must be a non-empty path)` };
+          }
           storePathGiven = value;
           break;
         }
         case "--cors-origin": {
-          corsGiven = [...(corsGiven ?? []), value];
+          try {
+            corsGiven = [...(corsGiven ?? []), validateCorsOrigin(value)];
+          } catch {
+            return { error: `invalid --cors-origin value: "${value}" (must be an exact http(s) origin)` };
+          }
           break;
         }
         case "--pinned-system": {
@@ -333,8 +375,10 @@ export function parseInitArgs(args: string[]): ParseInitArgsResult {
 
 interface Answers {
   port: number;
+  listenHost: string;
   upstreamType: UpstreamType;
   baseUrl: string;
+  upstreamTimeoutMs: number;
   models: Record<string, ModelPricing>;
   monthlyUsd: number;
   defaultDailyPerTokenUsd: number;
@@ -353,8 +397,10 @@ interface Answers {
 function defaultAnswers(upstreamType: UpstreamType = "anthropic"): Answers {
   return {
     port: 8787,
+    listenHost: "127.0.0.1",
     upstreamType,
     baseUrl: defaultBaseUrlFor(upstreamType),
+    upstreamTimeoutMs: 120_000,
     models: { [defaultModelNameFor(upstreamType)]: { ...DEFAULT_MODEL_PRICING } },
     monthlyUsd: 30,
     defaultDailyPerTokenUsd: 0.5,
@@ -376,8 +422,10 @@ function defaultAnswers(upstreamType: UpstreamType = "anthropic"): Answers {
 function applyOverrides(defaults: Answers, overrides: InitFlagOverrides): Answers {
   return {
     port: overrides.port ?? defaults.port,
+    listenHost: overrides.listenHost ?? defaults.listenHost,
     upstreamType: overrides.upstreamType ?? defaults.upstreamType,
     baseUrl: overrides.upstreamUrl ?? defaults.baseUrl,
+    upstreamTimeoutMs: overrides.upstreamTimeoutMs ?? defaults.upstreamTimeoutMs,
     models: overrides.models ?? defaults.models,
     monthlyUsd: overrides.monthlyUsd ?? defaults.monthlyUsd,
     defaultDailyPerTokenUsd: overrides.dailyUsd ?? defaults.defaultDailyPerTokenUsd,
@@ -393,7 +441,13 @@ function applyOverrides(defaults: Answers, overrides: InitFlagOverrides): Answer
 function buildConfigObject(answers: Answers): Record<string, unknown> {
   return {
     port: answers.port,
-    upstream: { baseUrl: answers.baseUrl, apiKeyEnv: defaultApiKeyEnvFor(answers.upstreamType), type: answers.upstreamType },
+    listenHost: answers.listenHost,
+    upstream: {
+      baseUrl: answers.baseUrl,
+      apiKeyEnv: defaultApiKeyEnvFor(answers.upstreamType),
+      timeoutMs: answers.upstreamTimeoutMs,
+      type: answers.upstreamType,
+    },
     models: answers.models,
     budget: { monthlyUsd: answers.monthlyUsd, defaultDailyPerTokenUsd: answers.defaultDailyPerTokenUsd },
     rateLimit: { requestsPerMinute: answers.requestsPerMinute },
@@ -435,15 +489,29 @@ async function promptPositiveNumber(
   }
 }
 
-async function promptUrl(rl: Rl, output: NodeJS.WritableStream, question: string, def: string): Promise<string> {
+async function promptUpstreamUrl(rl: Rl, output: NodeJS.WritableStream, question: string, def: string): Promise<string> {
   for (;;) {
     const raw = (await rl.question(`${question} [${def}]: `)).trim();
     const value = raw === "" ? def : raw;
     try {
-      new URL(value);
-      return value;
+      return normalizeUpstreamBaseUrl(value);
     } catch {
-      output.write(`  invalid URL: "${value}"\n`);
+      output.write(`  invalid URL: "${value}" (must be http(s) without credentials, query, or fragment)\n`);
+    }
+  }
+}
+
+async function promptCorsOrigins(rl: Rl, output: NodeJS.WritableStream): Promise<string[]> {
+  for (;;) {
+    const raw = await promptString(rl, "CORS allowed origins (comma-separated, empty = none)", "");
+    const candidates = raw
+      .split(",")
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0);
+    try {
+      return candidates.map(validateCorsOrigin);
+    } catch {
+      output.write("  invalid CORS origin - use exact http(s) origins such as https://app.example\n");
     }
   }
 }
@@ -537,6 +605,9 @@ function ack(output: NodeJS.WritableStream, label: string, value: string, flag: 
 }
 
 async function promptAll(rl: Rl, output: NodeJS.WritableStream, overrides: InitFlagOverrides): Promise<Answers> {
+  const listenHost = overrides.listenHost ?? "127.0.0.1";
+  if (overrides.listenHost !== undefined) ack(output, "listen host", listenHost, "--listen-host");
+
   let port: number;
   if (overrides.port !== undefined) {
     port = overrides.port;
@@ -559,13 +630,17 @@ async function promptAll(rl: Rl, output: NodeJS.WritableStream, overrides: InitF
     ])) as UpstreamType;
   }
   const defaults = defaultAnswers(upstreamType);
+  const upstreamTimeoutMs = overrides.upstreamTimeoutMs ?? defaults.upstreamTimeoutMs;
+  if (overrides.upstreamTimeoutMs !== undefined) {
+    ack(output, "upstream response-header timeout ms", String(upstreamTimeoutMs), "--upstream-timeout-ms");
+  }
 
   let baseUrl: string;
   if (overrides.upstreamUrl !== undefined) {
     baseUrl = overrides.upstreamUrl;
     ack(output, "upstream base URL", baseUrl, "--upstream-url");
   } else {
-    baseUrl = await promptUrl(rl, output, "upstream base URL", defaults.baseUrl);
+    baseUrl = await promptUpstreamUrl(rl, output, "upstream base URL", defaults.baseUrl);
   }
 
   let models: Record<string, ModelPricing>;
@@ -639,11 +714,7 @@ async function promptAll(rl: Rl, output: NodeJS.WritableStream, overrides: InitF
     corsOrigins = overrides.corsOrigins;
     ack(output, "CORS allowed origins", corsOrigins.join(", "), "--cors-origin");
   } else {
-    const corsRaw = await promptString(rl, "CORS allowed origins (comma-separated, empty = none)", "");
-    corsOrigins = corsRaw
-      .split(",")
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
+    corsOrigins = await promptCorsOrigins(rl, output);
   }
 
   let pinnedSystemPrompt: string | null;
@@ -661,8 +732,10 @@ async function promptAll(rl: Rl, output: NodeJS.WritableStream, overrides: InitF
 
   return {
     port,
+    listenHost,
     upstreamType,
     baseUrl,
+    upstreamTimeoutMs,
     models,
     monthlyUsd,
     defaultDailyPerTokenUsd,
@@ -696,8 +769,8 @@ function validateGeneratedConfig(configObject: Record<string, unknown>, apiKeyEn
   const savedApiKey = process.env[apiKeyEnv];
   const savedAdminKey = process.env.SEKIMORI_ADMIN_KEY;
 
-  if (!hadApiKey) process.env[apiKeyEnv] = "sekimori-init-placeholder";
-  if (!hadAdminKey) process.env.SEKIMORI_ADMIN_KEY = "sekimori-init-placeholder";
+  if (!hadApiKey) process.env[apiKeyEnv] = "sekimori-init-upstream-placeholder";
+  if (!hadAdminKey) process.env.SEKIMORI_ADMIN_KEY = "sekimori-init-admin-placeholder-value";
 
   try {
     return validateConfig(configObject);
@@ -714,6 +787,10 @@ function printNextSteps(output: NodeJS.WritableStream, path: string, apiKeyEnv: 
     apiKeyEnv === BEDROCK_API_KEY_ENV
       ? `       export ${apiKeyEnv}=<your Bedrock API key>   # see docs/configuration.md, "Using Amazon Bedrock"`
       : `       export ${apiKeyEnv}=sk-ant-...      # your real upstream API key`;
+  const powerShellKeyLine =
+    apiKeyEnv === BEDROCK_API_KEY_ENV
+      ? `       $env:${apiKeyEnv} = "<your Bedrock API key>"   # see docs/configuration.md, "Using Amazon Bedrock"`
+      : `       $env:${apiKeyEnv} = "sk-ant-..."      # your real upstream API key`;
   output.write(
     [
       "",
@@ -724,9 +801,13 @@ function printNextSteps(output: NodeJS.WritableStream, path: string, apiKeyEnv: 
       '       node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'base64url\'))"',
       "     (or with openssl: openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')",
       "",
-      "  2. Export the required environment variables (never written to the config file):",
-      keyExportLine,
-      "       export SEKIMORI_ADMIN_KEY=<the admin key from step 1>",
+       "  2. Export the required environment variables (never written to the config file):",
+       "       # macOS / Linux:",
+       keyExportLine,
+       "       export SEKIMORI_ADMIN_KEY=<the admin key from step 1>",
+       "       # Windows PowerShell:",
+       powerShellKeyLine,
+       '       $env:SEKIMORI_ADMIN_KEY = "<the admin key from step 1>"',
       "",
       "  3. Start sekimori:",
       "       # from a clone:",

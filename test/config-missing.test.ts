@@ -37,3 +37,31 @@ test("config: JSON parse error keeps the plain (non-ENOENT) message form", (t) =
     return true;
   });
 });
+
+test("config: a relative file-store path is resolved from the config file directory", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "sekimori-config-relative-store-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const oldUpstreamKey = process.env.SEKIMORI_RELATIVE_STORE_TEST_KEY;
+  const oldAdminKey = process.env.SEKIMORI_ADMIN_KEY;
+  t.after(() => {
+    if (oldUpstreamKey === undefined) delete process.env.SEKIMORI_RELATIVE_STORE_TEST_KEY;
+    else process.env.SEKIMORI_RELATIVE_STORE_TEST_KEY = oldUpstreamKey;
+    if (oldAdminKey === undefined) delete process.env.SEKIMORI_ADMIN_KEY;
+    else process.env.SEKIMORI_ADMIN_KEY = oldAdminKey;
+  });
+  process.env.SEKIMORI_RELATIVE_STORE_TEST_KEY = "upstream-test-key";
+  process.env.SEKIMORI_ADMIN_KEY = "admin-test-key-32-bytes-minimum-0001";
+
+  const configPath = join(dir, "sekimori.config.json");
+  writeFileSync(
+    configPath,
+    JSON.stringify({
+      upstream: { baseUrl: "http://localhost:9999", apiKeyEnv: "SEKIMORI_RELATIVE_STORE_TEST_KEY" },
+      models: { "test-model": { inputPerMTok: 1, outputPerMTok: 5 } },
+      budget: { monthlyUsd: 30 },
+      store: { type: "file", path: "state/budget.json" },
+    }),
+  );
+
+  assert.equal(loadConfigFromFile(configPath).store.path, join(dir, "state", "budget.json"));
+});

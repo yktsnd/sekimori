@@ -13,8 +13,9 @@
 #   npm run build   # first time / after source changes
 #   bash test/pack-smoke.sh
 #
-# Not wired into `npm test` (keeps unit tests fast and offline-instant); CI
-# calls this separately (issue #8).
+# Legacy POSIX implementation. `npm run test:pack` and CI use the Node-only
+# `test/pack-smoke.mjs` so the same acceptance test runs on Windows; keep this
+# script for contributors who prefer the original Bash diagnostic flow.
 
 set -uo pipefail
 
@@ -23,7 +24,7 @@ SEKIMORI_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 UPSTREAM_PORT="${SEKIMORI_PACK_UPSTREAM_PORT:-19998}"
 SEKIMORI_PORT="${SEKIMORI_PACK_PORT:-18788}"
-ADMIN_KEY="pack-smoke-admin-key"
+ADMIN_KEY="pack-smoke-admin-key-32-bytes-minimum-0001"
 MODEL="claude-haiku-4-5-20251001"
 
 # --- Working directories (mktemp -d). Always cleaned up via trap; never dirties the repo ---
@@ -114,6 +115,25 @@ note "npm pack into a temp dir"
 # ============================================================================
 TARBALL="$(cd "$SEKIMORI_DIR" && npm pack --silent --pack-destination "$PACK_DIR")" || fail "npm pack failed"
 [ -f "$PACK_DIR/$TARBALL" ] || fail "tarball not found: $PACK_DIR/$TARBALL"
+MANIFEST="$PACK_DIR/package-manifest.txt"
+tar -tzf "$PACK_DIR/$TARBALL" >"$MANIFEST" || fail "could not read packed tarball manifest"
+for expected in \
+  package/docs/configuration.md \
+  package/docs/api.md \
+  package/examples/chat.html \
+  package/examples/demo.mjs \
+  package/AGENTS.md \
+  package/CONTRIBUTING.md \
+  package/SECURITY.md \
+  package/SUPPORT.md \
+  package/GOVERNANCE.md \
+  package/CODE_OF_CONDUCT.md \
+  package/RELEASING.md \
+  package/ROADMAP.md; do
+  # Do not use `tar ... | grep -q` with pipefail: grep exits as soon as it
+  # finds a match, which can make tar report SIGPIPE and falsely fail CI.
+  grep -Fxq -- "$expected" "$MANIFEST" || fail "packed tarball is missing $expected"
+done
 echo "    tarball: $TARBALL"
 
 # ============================================================================
@@ -154,9 +174,12 @@ EOF
 note "running the installed sekimori bin (via the temp project's node_modules/.bin)"
 # ============================================================================
 (
-  cd "$PROJECT_DIR" && \
-  SEKIMORI_ADMIN_KEY="$ADMIN_KEY" SEKIMORI_PACK_UPSTREAM_KEY="dummy-mock-key" \
-  "$SEKIMORI_BIN" "$CONFIG_PATH" >"$SEKIMORI_LOG" 2>&1
+  cd "$PROJECT_DIR" || exit 1
+  # `exec` makes the background PID the Node process itself. Without it,
+  # Git Bash can kill only this subshell during cleanup and leave the child
+  # gateway holding its port and temporary install directory.
+  exec env SEKIMORI_ADMIN_KEY="$ADMIN_KEY" SEKIMORI_PACK_UPSTREAM_KEY="dummy-mock-key" \
+    "$SEKIMORI_BIN" "$CONFIG_PATH" >"$SEKIMORI_LOG" 2>&1
 ) &
 SEKIMORI_PID=$!
 wait_for_http "http://localhost:$SEKIMORI_PORT/healthz"

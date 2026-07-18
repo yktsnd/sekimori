@@ -11,15 +11,17 @@ config/API references are [docs/configuration.md](docs/configuration.md) and
 
 sekimori is a single-process gateway that sits between an app and the
 Anthropic Messages API. It keeps the upstream API key server-side, enforces
-hard budget caps (global monthly + per-invite-token daily), rate-limits,
+configured budget ceilings (global monthly + per-invite-token daily), rate-limits,
 restricts models to an allowlist, can pin the system prompt, and relays SSE.
 It **fails closed**: on any ambiguity (unknown model, missing usage data,
 broken store) it blocks rather than allows.
 
 Your principal (the human owner) typically cannot audit your work. sekimori
 is the independent safety boundary that holds even if the app you built has
-bugs: the key never reaches clients, and spend stops at the caps. Treat it
-as the thing that protects your principal **from your own mistakes**.
+bugs: provider credentials stay server-side, and for the supported request
+subset with current declared prices, new requests stop at the configured
+accounting ceilings. Treat it as the thing that protects your principal
+**from your own mistakes**.
 
 Three roles:
 - **Owner** (human): supplies the upstream API key (Anthropic direct, or an
@@ -62,10 +64,13 @@ missing):
   file, client code, or logs.
 - `SEKIMORI_ADMIN_KEY` — generate one yourself:
   `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`
+  Both this and the upstream key must use visible ASCII only (`0x21`–`0x7e`,
+  so no whitespace/control/non-ASCII); the admin key must be at least 32
+  characters, and the two values must differ.
 
 On successful boot, stdout prints `[sekimori] listening on ...` plus an
-effective-config summary (port, upstream, models, budgets, rate limit, CORS,
-store, logBodies). Secrets are never printed.
+effective-config summary (port, listen host, upstream and its timeout, models,
+budgets, rate limit, CORS, store, logBodies). Secrets are never printed.
 
 ## Create a config
 
@@ -80,8 +85,8 @@ accepts.
    npx tsx src/main.ts init --yes [path]   # exit 0, writes path (default ./sekimori.config.json)
    ```
 
-   Every setting also has a flag (`--port`, `--upstream-type
-   anthropic|bedrock`, `--upstream-url`, `--model
+   Every setting also has a flag (`--port`, `--listen-host`, `--upstream-type
+   anthropic|bedrock`, `--upstream-url`, `--upstream-timeout-ms`, `--model
    name=inputPerMTok,outputPerMTok` — repeatable, replaces the default
    model list entirely once given at least once — `--monthly-usd`,
    `--daily-usd`, `--rate-limit`, `--store file|memory`, `--store-path`,
@@ -110,18 +115,56 @@ accepts.
    that matter:
    - `models` is both allowlist and price table; prices are the operator's
      declaration in USD per MTok. Verify current provider pricing — shipped
-     values are reference only. Unlisted models are rejected (403).
+     values are reference only. Every configured USD amount must be positive
+     and no more than $1,000,000,000. Unlisted models are rejected (403).
+   - The configured accounting boundary deliberately supports only ordinary text Messages
+     requests (no tools, prompt caching, multimodal/provider-managed
+     features, or unknown request fields). Keep client JSON within 64 KiB and
+     64 nesting levels; use a provider-specific gateway with a complete price
+     model if the app needs those features.
+   - `upstream.baseUrl`: HTTPS is required for every non-local address. Plain
+     HTTP is accepted only for exact localhost or a literal loopback IP, and
+     provider-authenticated redirects are refused.
+   - `rateLimit.requestsPerMinute`: 1–10,000. It is both a per-token rolling
+     minute limit and that token's active-request cap. Independently, the
+     process refuses message call 257 while 256 are active across all tokens.
    - `budget.monthlyUsd`: global kill switch. Ask the owner for this number;
      do not invent it.
+     The same applies to `budget.defaultDailyPerTokenUsd`; CLI defaults are
+     examples, not owner approval for a real deployment.
+     If a positive USD debit cannot change the stored total at the current
+     floating-point magnitude, sekimori fails closed. Do not work around that
+     error by weakening accounting; inspect the configured amounts/state.
    - `cors.allowedOrigins`: exact origins only. Empty array = no CORS
      headers. **Never** work around a CORS failure by adding `*` — add the
-     app's real origin.
+     app's real origin. HTTPS is required except for exact localhost or a
+     literal loopback IP.
    - `pinnedSystemPrompt`: set it whenever the app does not need
      client-supplied system prompts; it turns a stolen token into a much
      less useful asset.
    - `store`: use `"file"` for anything that must survive a restart
      (budget accounting resets to zero with `"memory"` — that weakens the
-     cap; prefer `file` in production).
+     cap; prefer `file` in production). File stores compact settled usage from
+     previous UTC months on a later reservation, but retain any unresolved
+     reservation so a cross-midnight request can still settle safely.
+     The file store holds `<state>.lock` for the process lifetime. A second
+     live process is refused; graceful `SIGINT`/`SIGTERM` releases the lock,
+     while a hard crash can leave a stale lock that startup will not reclaim.
+     Remove it only after verifying that no sekimori process uses that exact
+     state path. Never delete a live owner's lock to create a second replica.
+   - `listenHost`: defaults to `127.0.0.1`, so an accidental plain-HTTP
+     internet listener is not created. Set `0.0.0.0` / `::` only when a
+     platform or TLS-terminating reverse proxy must reach it, and verify the
+     startup log before handing out a URL.
+   - `upstream.timeoutMs`: defaults to 120 seconds for upstream response
+     headers and separately bounds the complete non-streaming body read. SSE
+     may continue after headers. A timeout leaves the conservative reservation
+     charged because the provider may have started a billable request.
+   - Non-streaming upstream bodies are limited to 4 MiB to protect gateway
+     memory. An over-limit body returns `502` and keeps the conservative
+     reservation. SSE relay remains byte-for-byte; its accounting parser has a
+     256 KiB unterminated-line limit and also keeps the reservation if parsing
+     becomes unsafe.
    - `upstream.type: "bedrock"`: routes through Amazon Bedrock instead of
      Anthropic directly. **Set `"stream": false` in every client** (see
      the reference client's `CONFIG.stream` in
@@ -130,13 +173,16 @@ accepts.
      fail-closed rather than silently ignoring it. The upstream key env
      var is conventionally `AWS_BEARER_TOKEN_BEDROCK` (what `sekimori init
      --upstream-type bedrock` writes into `upstream.apiKeyEnv`), and model
-     access for the model(s) you list must be enabled in the AWS console
-     before first use (opt-in per model, per account/region).
+     access for the model(s) you list must be confirmed before first use.
+     Check AWS's current model-access prerequisites rather than following a
+     stale opt-in walkthrough; long-term Bedrock API keys are exploration
+     credentials, so record their expiry and do not present this static-key
+     integration as a long-running production auth design.
 
 ## Verify (before handing the URL to anyone)
 
 ```bash
-curl -fsS http://localhost:8787/healthz        # -> {"ok":true}, exit 0
+curl -fsS http://127.0.0.1:8787/healthz        # -> {"ok":true}, exit 0
 ```
 
 Run `sekimori doctor` after any config or environment change, and again
@@ -162,7 +208,7 @@ verification — the full blocked/allowed scenario — runs offline from a
 clone:
 
 ```bash
-bash examples/demo.sh                          # 18 steps, exit 0, no API key, zero spend
+npm run demo                                   # 18 steps, exit 0, no API key, zero spend
 ```
 
 Verify the guards on YOUR deployed instance (cheap, uses the real key —
@@ -186,7 +232,7 @@ statuses: [docs/api.md](docs/api.md).
 ```bash
 # issue an invite token (plaintext appears ONLY in this response; store it nowhere except delivery to the end user)
 curl -s -X POST $BASE/admin/tokens -H "Authorization: Bearer $SEKIMORI_ADMIN_KEY" \
-  -H 'Content-Type: application/json' -d '{"name":"friend-1","dailyUsd":1}'   # 201
+  -H 'Content-Type: application/json' -d '{"name":"friend-1"}'   # 201; uses the owner-approved configured default
 
 # list / revoke / global usage
 curl -s $BASE/admin/tokens        -H "Authorization: Bearer $SEKIMORI_ADMIN_KEY"   # 200
@@ -197,7 +243,8 @@ curl -s $BASE/admin/usage         -H "Authorization: Bearer $SEKIMORI_ADMIN_KEY"
 Semantics you must encode in the app you build:
 - `429` carries `Retry-After` (seconds). `budget_exceeded_error` resets at
   UTC midnight (daily) or the 1st of next month UTC (monthly);
-  `rate_limit_error` within a minute. Show end users a friendly countdown —
+  rolling-window `rate_limit_error` within a minute. Active-request pressure
+  returns `1` as a minimum retry hint, not a guaranteed slot. Show end users a friendly countdown —
   [`examples/chat.html`](examples/chat.html) is the reference wording and is
   designed to be copied as your app's starting point.
 - `503 storage_unavailable_error` means the store broke and sekimori is
@@ -210,24 +257,32 @@ After setup, tell your principal in plain language, for example:
 
 > Your app is live at <URL>. It talks to Claude through a gateway I set up:
 > your API key stays on the server and is never in the app or the browser.
-> Spending is capped at $<monthly> per month total and $<daily> per day per
-> invited person; if a cap is hit, requests pause until it resets (no
-> overage is possible). Only people with an invite code can use it, each
+> For the supported text requests and the model prices in the configuration,
+> the gateway blocks a new request before its conservative reservation would
+> exceed $<monthly> per month total or $<daily> per day per invited person; if
+> a limit is hit, requests pause until it
+> resets. Only people with an invite code can use it, each
 > invite can be cancelled anytime, and requests are limited to <N> per
-> minute per person. Conversation contents are not logged.
+> rolling minute per person, with at most 256 messages active in the gateway
+> at once. Conversation contents are not logged. Provider
+> prices must be re-checked whenever models or pricing change.
 
 ## Rules (do not break these)
 
 1. Never place the upstream API key in the config file, client code,
    repository, or logs. Only the environment variable.
 2. Never expose `SEKIMORI_ADMIN_KEY` to end users or embed it in the app's
-   frontend.
+   frontend. Both secrets must use visible ASCII only; the admin key must be
+   at least 32 characters and differ from the upstream key.
 3. Never add `*` (or the effect of it) to CORS origins.
 4. Never raise budget caps or issue tokens beyond what the owner approved.
    Budget numbers come from the owner, not from you.
 5. Do not disable or work around a fail-closed block (403/429/503). The
    block is the product working. Diagnose, report, or wait for the reset.
 6. sekimori is single-process; do not put it behind a load balancer with
-   multiple replicas (limits and memory-store state would fragment).
+   multiple replicas (limits would fragment, and file-store ownership is
+   exclusive). If `<state>.lock` names a live process, stop that process rather
+   than deleting the lock. After a confirmed hard crash, verify no process uses
+   the state path before removing the stale lock and restarting.
 7. HTTPS is required for anything beyond localhost — terminate TLS in front
    (platform default or a reverse proxy).

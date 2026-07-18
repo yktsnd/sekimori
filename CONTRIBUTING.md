@@ -4,6 +4,10 @@ Thanks for considering a contribution. This document exists to protect your
 time: it tells you up front what is welcome, what needs discussion first, and
 what will be declined regardless of quality.
 
+By participating, follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). For setup
+questions and safe-reporting guidance, see [SUPPORT.md](SUPPORT.md); security
+reports use [SECURITY.md](SECURITY.md), never a public issue.
+
 ## PRs that are welcome as-is
 
 - Bug fixes (especially anything where sekimori fails **open** when it
@@ -48,10 +52,11 @@ asked for a strong justification.
 npm install
 npm test              # node:test, fully offline, no API key needed
 npm run typecheck     # tsc --noEmit
-bash examples/demo.sh # end-to-end smoke test, offline, exits non-zero on any mismatch
+npm run demo          # cross-platform end-to-end smoke test, offline, exits non-zero on any mismatch
+npm run test:pack     # cross-platform tarball -> fresh install -> demo/doctor/HTTP acceptance
 ```
 
-All three must be green before review. Tests run without any real API key —
+All four must be green before review. Tests run without any real API key —
 keeping it that way is a hard requirement for every PR.
 
 ## Style

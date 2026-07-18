@@ -5,13 +5,14 @@ import { createApp } from "../../src/app.js";
 import type { SekimoriConfig } from "../../src/config.js";
 import { MemoryStore, type Store } from "../../src/store.js";
 
-export const TEST_ADMIN_KEY = "test-admin-key";
+export const TEST_ADMIN_KEY = "test-admin-key-32-bytes-minimum-0001";
 export const TEST_UPSTREAM_API_KEY = "test-upstream-key";
 
 export function buildTestConfig(baseUrl: string, overrides: Partial<SekimoriConfig> = {}): SekimoriConfig {
   return {
     port: 0,
-    upstream: { baseUrl, apiKeyEnv: "TEST_UPSTREAM_KEY_ENV", type: "anthropic" },
+    listenHost: "127.0.0.1",
+    upstream: { baseUrl, apiKeyEnv: "TEST_UPSTREAM_KEY_ENV", timeoutMs: 120_000, type: "anthropic" },
     models: { "test-model": { inputPerMTok: 1, outputPerMTok: 5 } },
     budget: { monthlyUsd: 30, defaultDailyPerTokenUsd: 0.5 },
     rateLimit: { requestsPerMinute: 10 },
@@ -75,9 +76,9 @@ export function messagesRequest(
   });
 }
 
-export async function getUsage(app: Hono, token: string): Promise<{ todayUsd: number; dailyLimitUsd: number; monthUsd: number; monthlyLimitUsd: number }> {
+export async function getUsage(app: Hono, token: string): Promise<{ todayUsd: number; dailyLimitUsd: number }> {
   const res = await app.fetch(new Request("http://localhost/v1/usage", { headers: { Authorization: `Bearer ${token}` } }));
-  return (await res.json()) as { todayUsd: number; dailyLimitUsd: number; monthUsd: number; monthlyLimitUsd: number };
+  return (await res.json()) as { todayUsd: number; dailyLimitUsd: number };
 }
 
 /** Polls until the condition holds. Used e.g. to wait for the async accounting that runs after a stream ends. */

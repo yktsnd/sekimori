@@ -1,128 +1,109 @@
 # Roadmap
 
-sekimori aims to be **done software**: a small tool that converges on
-finished, not a project that must grow forever to stay alive. The scope is
-fixed by the [non-goals](docs/design.md); this roadmap is about closing the
-gap between "works for its author" and "trustworthy for strangers", then
-stopping.
+sekimori aims to become **done software**: a small, dependable tool that does
+not need permanent feature expansion to remain useful. The permanent scope is
+defined in [docs/design.md](docs/design.md); this roadmap tracks the remaining
+distance between a locally verified release candidate and a release that a
+stranger can independently install and trust.
 
-The goal, revised by three sustainability reviews
-([round 1](docs/history/05-sustainability-review.md),
-[round 2](docs/history/06-agent-operator-review.md),
-[round 3](docs/history/07-owner-onboarding-review.md)):
+Capability labels below are not published SemVer versions. Until an npm
+artifact, Git tag, GitHub Release, and default-branch commit all agree, there
+is no released version. [RELEASING.md](RELEASING.md) is authoritative for that
+transition.
 
-> The **owner** (a human who may know nothing about deployment or billing —
-> not even what an API key or a hosting account *is*) can learn everything
-> that is theirs to do from one guide in their own language, and can pay
-> with credits they already hold (Anthropic direct or AWS Bedrock). The
-> **operator** — typically a coding agent — installs, configures, verifies,
-> and runs sekimori without human intervention, and hands the owner a
-> plain-language summary of what is protected. A third-party contributor
-> can still fix and extend the tool without ever contacting the maintainer.
+The owner/operator/contributor design came from three reviews:
+[sustainability](docs/history/05-sustainability-review.md),
+[agent operation](docs/history/06-agent-operator-review.md), and
+[owner onboarding](docs/history/07-owner-onboarding-review.md).
 
-Work is issue-driven: every item maps to a GitHub issue with acceptance
-criteria. Items marked **[credential gate]** need the owner's accounts,
-spend, or naming judgment — the agent team executes them the moment a human
-provides credentials and approval; everything else is completable by the
-agent team alone (design/review: Fable 5, implementation: Sonnet 5).
+## Implemented in the release candidate
 
-## v0.2 — "distribution-ready" ✅ (2026-07)
+- **Distribution foundation:** English-first project documentation, npm
+  package layout and binary, clean-install pack smoke test, CI, contribution
+  and governance files, a cross-platform offline demo, and a manual,
+  provenance-enabled npm publish workflow with fail-closed release preflight.
+- **Deterministic operation:** non-interactive `init`, per-setting CLI flags,
+  `doctor --json`, stable error types, expected exit behavior, and an agent
+  operations manual in [AGENTS.md](AGENTS.md).
+- **Owner onboarding:** English and Japanese owner guides explaining keys,
+  hosting, budget decisions, and both Anthropic-direct and AWS Bedrock paths.
+- **Safety boundary:** invite/admin authentication, exact model allowlist,
+  conservative atomic budget reservations, bounded requests/responses, rate
+  and active-request controls, pinned system prompts, exact-origin CORS,
+  restart-safe file storage, and fail-closed behavior for ambiguous accounting.
+- **Supported providers:** Anthropic Messages API (non-streaming and SSE) and
+  Amazon Bedrock `InvokeModel` (non-streaming only).
 
-A third party can try sekimori in 5 minutes and contribute without
-guessing. Shipped: sustainability review; reader-task docs with English as
-the primary language; governance set (CONTRIBUTING/SECURITY/CHANGELOG/
-templates); English-only source; npm packaging with a pack/boot smoke test;
-`sekimori init`; minimal CI (Node 20/22, typecheck + 55 tests + offline
-demo + pack smoke, ~30 s per job).
+These statements describe the working tree/release candidate. They do not
+claim that the same files are already on the default branch or in a registry
+package, and must be re-verified on the exact release commit.
 
-## v0.3 — "agent-ready" ✅ (2026-07)
+## First public release gates
 
-A coding agent can operate sekimori end-to-end deterministically — no TTY,
-no guesswork, machine-verifiable results.
+### Maintainer or account authority required
 
-- [x] Agent-operator review: roles (owner / agent operator / end users),
-      root causes, this plan
-- [x] `AGENTS.md`: the operations manual written for agents (deterministic
-      commands, expected outputs/exit codes, owner-report template, hard
-      rules), shipped in the npm package (packaging wired in the init-flags
-      issue); README/positioning updated so the agent use case is
-      first-class
-- [x] Fully non-interactive `sekimori init`: per-setting flags (`--port`,
-      `--model name=input,output`, `--monthly-usd`, `--daily-usd`,
-      `--rate-limit`, `--store`, `--cors-origin`, `--pinned-system`, ...)
-      plus `--help`; agents never hand-edit JSON either
-- [x] `sekimori doctor <config>`: non-interactive self-check of a concrete
-      installation (config validity, required env vars, store writability)
-      with a plain-language summary for owners and `--json` + exit codes
-      for agents
+- [ ] Merge the reviewed release candidate into the intended default branch.
+- [x] Record the maintainer's 2026-07-18 J-PlatPat search for `sekimori` (no
+      registered mark found) as a naming-risk decision, not legal clearance.
+- [ ] Reconfirm npm name availability immediately before publish.
+- [x] Use `0.2.0` as the first public version, as approved by the maintainer on
+      2026-07-18; retain `YK` as the approved MIT copyright holder.
+- [x] Make the repository public deliberately and scan every Git revision for
+      sensitive paths and credential patterns (no matches found on 2026-07-18).
+- [x] Replace the personal Gmail address in author and committer metadata with
+      the repository's existing GitHub noreply address across every published
+      branch, as explicitly authorized by the maintainer.
+- [x] Enable private vulnerability reporting.
+- [ ] Test private vulnerability reporting from a non-maintainer account.
+- [ ] Verify the documented X Direct Message conduct-reporting route accepts a
+      private message.
+- [x] Enable secret scanning, push protection, Dependabot security updates,
+      read-only default Actions permissions, and full-SHA action pinning.
+- [ ] Configure branch protection and required CI after the rewritten branches
+      and release-candidate PR are in place.
+- [x] Add accurate GitHub About text and repository topics.
+- [x] Prepare a 1280 x 640, sub-1 MB social-preview asset in `.github/`.
+- [ ] Upload the social preview and verify the community profile from a
+      signed-out view.
+- [ ] Publish with the maintainer's npm/GitHub authority, then create a matching
+      Git tag and GitHub Release from the same verified commit.
 
-## v0.4 — "owner-ready" ✅ (2026-07)
+### Real-world evidence required
 
-The owner needs zero prior knowledge and can pay with credits they already
-hold. Triggered by the owner's real questions ("what is a hosting
-account?", "can I use my AWS Bedrock free credit?") — see
-[round 3](docs/history/07-owner-onboarding-review.md).
+- [ ] Deploy exactly one process behind HTTPS using an approved hosting
+      account, approved provider credential, and owner-approved small budget.
+- [ ] Run `doctor`, the blocked/allowed live checks in [AGENTS.md](AGENTS.md),
+      token revocation, restart persistence, and provider round-trip checks.
+- [ ] Re-check current provider prices, model access, key guidance, and billing
+      controls using official provider documentation.
+- [ ] Write deployment recipes only from the verified run, including rollback,
+      secret rotation, durable storage, log access, and one-replica settings.
+- [ ] Install the published package in a new empty directory and verify
+      `npx sekimori@<version> demo`, `init`, `doctor`, and a local round trip.
 
-- [x] Owner-onboarding review: why "provide credentials" was itself a
-      knowledge-heavy ask, and what closes the gap
-- [x] Owner guide (`docs/owner-guide.md` + `docs/owner-guide.ja.md`):
-      written for zero prior knowledge — what an API key is and how to get
-      one (Anthropic direct **or** Amazon Bedrock, to use existing AWS
-      credits), what hosting is, cost ballparks, safe key handover, what
-      stays the owner's decision, FAQ; linked from READMEs and AGENTS.md
-- [x] Amazon Bedrock upstream (`upstream.type: "bedrock"`): Bearer API-key
-      auth (`AWS_BEARER_TOKEN_BEDROCK`), `/model/<id>/invoke` with the
-      documented body transform, same budget accounting; **streaming
-      requests rejected fail-closed** with a clear error (eventstream→SSE
-      transcoding is a "Later" item); `init --upstream-type`, reference
-      client `CONFIG.stream` toggle, docs updated
+## After release, only when pulled by evidence
 
-## v0.5 — "public release" (credential gates)
+New work needs an issue with a concrete user story and acceptance evidence.
+Order improvements that shorten first success, reduce operator error, or close
+a demonstrated safety gap ahead of new surface area.
 
-The release itself, plus proof that the 30-minute publish target holds in
-the real world. Execution is agent work; each item starts the moment the
-human provides the named credential/approval (the owner guide explains how
-to obtain each one).
+Possible candidates, not commitments:
 
-- [ ] **[credential gate: hosting account + API key]** Real-deployment
-      verification: an agent session deploys one real prototype behind
-      sekimori (e.g. Fly.io / Railway / VPS), runs the AGENTS.md
-      verification steps against the live instance, and measures
-      prompt-to-published wall-clock time against the 30-minute target.
-      The owner's only actions: provide hosting credentials and the
-      Anthropic key, approve the budget numbers
-- [ ] Deploy guide (`docs/deploy.md`): 2–3 recipes written **from that
-      measured run** — never from imagination (unverified deploy steps are
-      debt). Written for agent execution first (deterministic steps +
-      verification), readable by humans second
-- [ ] **[credential gate: naming judgment]** Name/trademark sanity check
-      for "sekimori"
-- [ ] **[credential gate: npm account]** `npm publish` + v0.2.0 tag/release
-      notes; verify `npx sekimori@latest` boots from the registry
+1. A verified deployment recipe for each hosting environment actually tested.
+2. An application starter that makes the invite-token and error UX reusable.
+3. Bedrock streaming, including eventstream-to-SSE conversion and complete
+   usage extraction.
+4. A provider abstraction paired with a fully specified request, response, and
+   pricing model for any additional upstream.
+5. A small operator-facing usage view if actual operation proves the HTTP API
+   insufficient.
+6. An alternative end-user authentication mode if bearer invite tokens are a
+   demonstrated adoption blocker.
 
-## Later (only if pulled by real usage)
+## Permanent non-goals
 
-Ordered by "shortens the first 5 minutes" > "adds deployment options".
-Each requires an issue with a concrete user story before any code.
-
-1. OpenAI-compatible upstream (`/v1/chat/completions`) — introduced together
-   with a formal upstream-provider abstraction (one of the two supported
-   extension points)
-2. Cloudflare Workers + Durable Objects deployment
-3. BYOK mode (users bring their own key; zero budget risk for the developer)
-4. Magic-link / OAuth end-user auth (upgrade path from invite tokens)
-5. Single-page static usage view
-6. `npm create sekimori` scaffold (frontend starter included)
-7. Bedrock streaming (AWS eventstream → SSE transcoding, plus usage
-   extraction from `invocationMetrics`) — heavier transform machinery;
-   pick up once non-streaming Bedrock sees real use
-8. MCP server exposing admin operations as tools — only if real agent
-   operation shows the CLI + HTTP API surface is not enough
-9. Publish-readiness auditor (the shelved alternative concept, revisited)
-
-## Non-goals (permanent)
-
-Multi-tenant SaaS, billing integration (Stripe), dashboards, prompt
-management/evals, caching, retries, 100-provider support, horizontal
-scaling, databases. See [docs/design.md](docs/design.md) — proposals to
-change these are welcome as discussions, but the default answer is no.
+Multi-tenant SaaS, payment processing, provider billing replacement,
+dashboards as a product, prompt/evaluation management, caching, automatic
+retries, broad provider coverage, databases required for the core, and
+horizontal scaling. Proposals may be discussed, but should not be presented as
+accepted roadmap work without a scope decision.

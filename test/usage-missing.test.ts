@@ -3,7 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { startMockUpstream, jsonMessagesHandlerWithoutUsage } from "./helpers/mock-upstream.js";
-import { estimateInputTokens } from "../src/budget.js";
+import { estimateRequestTokens, INPUT_TOKEN_SAFETY_MARGIN } from "../src/budget.js";
 import { buildTestConfig, buildApp, getUsage, issueToken, messagesRequest } from "./helpers/test-app.js";
 
 test("usage missing from upstream response: worstCost is recorded as the actual charge", async (t) => {
@@ -22,7 +22,7 @@ test("usage missing from upstream response: worstCost is recorded as the actual 
   assert.equal(res.status, 200);
 
   const usage = await getUsage(app, issued.token);
-  const inputTokens = estimateInputTokens(messages, undefined);
-  const expectedWorst = (inputTokens / 1_000_000) * 3 + (maxTokens / 1_000_000) * 7;
+  const inputTokens = estimateRequestTokens({ model: "test-model", max_tokens: maxTokens, messages });
+  const expectedWorst = ((inputTokens + INPUT_TOKEN_SAFETY_MARGIN) / 1_000_000) * 3 + (maxTokens / 1_000_000) * 7;
   assert.ok(Math.abs(usage.todayUsd - expectedWorst) < 1e-9, `expected ~${expectedWorst}, got ${usage.todayUsd}`);
 });

@@ -7,7 +7,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, chmodSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, chmodSync, mkdirSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import { runDoctor, runDoctorChecks, parseDoctorArgs, DOCTOR_CHECK_NAMES, DOCTOR_HELP_TEXT } from "../src/doctor.js";
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
-const TSX_BIN = join(REPO_ROOT, "node_modules/.bin/tsx");
+const TSX_CLI = join(REPO_ROOT, "node_modules", "tsx", "dist", "cli.mjs");
 const MAIN_TS = join(REPO_ROOT, "src/main.ts");
 
 const TEST_KEY_ENV = "SEKIMORI_DOCTOR_TEST_KEY";
@@ -99,7 +99,7 @@ test("doctor: happy path - all checks ok, ok:true, stable check names", (t) => {
   const dir = tmpDir("sekimori-doctor-happy-");
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   process.env[TEST_KEY_ENV] = "sk-test-value";
-  process.env.SEKIMORI_ADMIN_KEY = "admin-test-value";
+  process.env.SEKIMORI_ADMIN_KEY = "admin-test-value-32-bytes-minimum-0001";
 
   const configPath = writeConfig(dir, { store: { type: "file", path: join(dir, "state.json") } });
   const result = runDoctorChecks(configPath);
@@ -186,7 +186,7 @@ test("doctor: missing upstream key env var - upstream_key_env fails, config_vali
   const dir = tmpDir("sekimori-doctor-noenv-");
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   delete process.env[TEST_KEY_ENV];
-  process.env.SEKIMORI_ADMIN_KEY = "admin-test-value";
+  process.env.SEKIMORI_ADMIN_KEY = "admin-test-value-32-bytes-minimum-0001";
 
   const configPath = writeConfig(dir, { store: { type: "file", path: join(dir, "state.json") } });
   const result = runDoctorChecks(configPath);
@@ -223,7 +223,7 @@ test("doctor: memory store - store_writable warns, ok stays true, exit 0", (t) =
   const dir = tmpDir("sekimori-doctor-memory-");
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   process.env[TEST_KEY_ENV] = "sk-test-value";
-  process.env.SEKIMORI_ADMIN_KEY = "admin-test-value";
+  process.env.SEKIMORI_ADMIN_KEY = "admin-test-value-32-bytes-minimum-0001";
 
   const configPath = writeConfig(dir, { store: { type: "memory", path: "" } });
   const result = runDoctorChecks(configPath);
@@ -243,7 +243,7 @@ test("doctor: logBodies true - logging warns, ok stays true", (t) => {
   const dir = tmpDir("sekimori-doctor-logbodies-");
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   process.env[TEST_KEY_ENV] = "sk-test-value";
-  process.env.SEKIMORI_ADMIN_KEY = "admin-test-value";
+  process.env.SEKIMORI_ADMIN_KEY = "admin-test-value-32-bytes-minimum-0001";
 
   const configPath = writeConfig(dir, {
     logging: { logBodies: true },
@@ -262,8 +262,8 @@ test("doctor: logBodies true - logging warns, ok stays true", (t) => {
 // ---------------------------------------------------------------------------
 
 test("doctor: file store with unwritable directory - store_writable fails, exit 1", (t) => {
-  if (process.getuid?.() === 0) {
-    t.skip("running as root: directory permission bits do not block root writes");
+  if (process.platform === "win32" || process.getuid?.() === 0) {
+    t.skip("permission-bit test is not reliable on Windows or as root");
     return;
   }
   t.after(resetEnv);
@@ -277,7 +277,7 @@ test("doctor: file store with unwritable directory - store_writable fails, exit 
   chmodSync(readonlyDir, 0o555); // r-x r-x r-x: no write permission
 
   process.env[TEST_KEY_ENV] = "sk-test-value";
-  process.env.SEKIMORI_ADMIN_KEY = "admin-test-value";
+  process.env.SEKIMORI_ADMIN_KEY = "admin-test-value-32-bytes-minimum-0001";
 
   const configPath = writeConfig(dir, { store: { type: "file", path: join(readonlyDir, "state.json") } });
   const result = runDoctorChecks(configPath);
@@ -300,10 +300,14 @@ test("doctor: probing an existing state file never modifies its content", (t) =>
   const dir = tmpDir("sekimori-doctor-existing-state-");
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   process.env[TEST_KEY_ENV] = "sk-test-value";
-  process.env.SEKIMORI_ADMIN_KEY = "admin-test-value";
+  process.env.SEKIMORI_ADMIN_KEY = "admin-test-value-32-bytes-minimum-0001";
 
   const statePath = join(dir, "state.json");
-  const originalContent = JSON.stringify({ tokens: [{ id: "keep-me" }], usage: {} });
+  const originalContent = JSON.stringify({
+    tokens: [{ id: "keep-me", tokenHash: "c".repeat(64), dailyUsd: 1, createdAt: "2026-01-01T00:00:00.000Z" }],
+    usage: {},
+    reservations: {},
+  });
   writeFileSync(statePath, originalContent);
 
   const configPath = writeConfig(dir, { store: { type: "file", path: statePath } });
@@ -312,8 +316,76 @@ test("doctor: probing an existing state file never modifies its content", (t) =>
   const byName = new Map(result.checks.map((c) => [c.name, c]));
   assert.equal(byName.get("store_writable")?.status, "ok");
   assert.equal(readFileSync(statePath, "utf8"), originalContent, "doctor must never modify the real state file");
-  // No probe file should have been left behind next to it either.
-  assert.ok(!existsSync(`${statePath}.doctor-probe-${process.pid}`));
+  // No temporary probe directory should have been left behind next to it either.
+  assert.deepEqual(readdirSync(dir).filter((name) => name.startsWith(".sekimori-doctor-")), []);
+});
+
+test("doctor: malformed existing state fails without modifying it", (t) => {
+  t.after(resetEnv);
+  const dir = tmpDir("sekimori-doctor-invalid-state-");
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  process.env[TEST_KEY_ENV] = "sk-test-value";
+  process.env.SEKIMORI_ADMIN_KEY = "admin-test-value-32-bytes-minimum-0001";
+
+  const statePath = join(dir, "state.json");
+  const originalContent = "{ not valid JSON";
+  writeFileSync(statePath, originalContent);
+  const configPath = writeConfig(dir, { store: { type: "file", path: statePath } });
+
+  const result = runDoctorChecks(configPath);
+  const byName = new Map(result.checks.map((c) => [c.name, c]));
+  assert.equal(byName.get("store_writable")?.status, "fail");
+  assert.equal(readFileSync(statePath, "utf8"), originalContent);
+});
+
+test("doctor: a missing state file is never created and leaves no probe artifacts", (t) => {
+  t.after(resetEnv);
+  const dir = tmpDir("sekimori-doctor-missing-state-");
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  process.env[TEST_KEY_ENV] = "sk-test-value";
+  process.env.SEKIMORI_ADMIN_KEY = "admin-test-value-32-bytes-minimum-0001";
+
+  const statePath = join(dir, "state.json");
+  const configPath = writeConfig(dir, { store: { type: "file", path: statePath } });
+  const result = runDoctorChecks(configPath);
+  const byName = new Map(result.checks.map((c) => [c.name, c]));
+
+  assert.equal(byName.get("store_writable")?.status, "ok");
+  assert.equal(existsSync(statePath), false);
+  assert.deepEqual(readdirSync(dir).filter((name) => name.startsWith(".sekimori-doctor-")), []);
+});
+
+test("doctor: a relative store path is checked relative to the config file", (t) => {
+  t.after(resetEnv);
+  const dir = tmpDir("sekimori-doctor-relative-state-");
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  process.env[TEST_KEY_ENV] = "sk-test-value";
+  process.env.SEKIMORI_ADMIN_KEY = "admin-test-value-32-bytes-minimum-0001";
+
+  const configPath = writeConfig(dir); // store.path is the relative "state.json"
+  const result = runDoctorChecks(configPath);
+  const storeCheck = result.checks.find((check) => check.name === "store_writable");
+
+  assert.equal(storeCheck?.status, "ok");
+  assert.match(storeCheck?.detail ?? "", new RegExp(dir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.equal(existsSync(join(dir, "state.json")), false, "doctor must not create the relative state file");
+});
+
+test("doctor: a directory at the configured state-file path fails the self-check", (t) => {
+  t.after(resetEnv);
+  const dir = tmpDir("sekimori-doctor-state-dir-");
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  process.env[TEST_KEY_ENV] = "sk-test-value";
+  process.env.SEKIMORI_ADMIN_KEY = "admin-test-value-32-bytes-minimum-0001";
+
+  const statePath = join(dir, "state.json");
+  mkdirSync(statePath);
+  const configPath = writeConfig(dir, { store: { type: "file", path: statePath } });
+  const result = runDoctorChecks(configPath);
+  const byName = new Map(result.checks.map((c) => [c.name, c]));
+
+  assert.equal(byName.get("store_writable")?.status, "fail");
+  assert.equal(result.ok, false);
 });
 
 // ---------------------------------------------------------------------------
@@ -325,7 +397,7 @@ test("doctor: human output includes a Protection summary only when ok", (t) => {
   const dir = tmpDir("sekimori-doctor-summary-");
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   process.env[TEST_KEY_ENV] = "sk-test-value";
-  process.env.SEKIMORI_ADMIN_KEY = "admin-test-value";
+  process.env.SEKIMORI_ADMIN_KEY = "admin-test-value-32-bytes-minimum-0001";
 
   const configPath = writeConfig(dir, { store: { type: "file", path: join(dir, "state.json") } });
   const { stream, text } = capturingOutput();
@@ -363,9 +435,13 @@ test("doctor: real CLI, env vars set - exit 0, --json prints ok:true and every c
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const configPath = writeConfig(dir, { store: { type: "file", path: join(dir, "state.json") } });
 
-  const res = spawnSync(TSX_BIN, [MAIN_TS, "doctor", configPath, "--json"], {
+  const res = spawnSync(process.execPath, [TSX_CLI, MAIN_TS, "doctor", configPath, "--json"], {
     encoding: "utf8",
-    env: { ...process.env, [TEST_KEY_ENV]: "sk-test-value", SEKIMORI_ADMIN_KEY: "admin-test-value" },
+    env: {
+      ...process.env,
+      [TEST_KEY_ENV]: "sk-test-value",
+      SEKIMORI_ADMIN_KEY: "admin-test-value-32-bytes-minimum-0001",
+    },
   });
 
   assert.equal(res.status, 0, res.stderr);
@@ -383,7 +459,7 @@ test("doctor: real CLI, env vars unset - exit 1, --json prints ok:false with env
   delete env[TEST_KEY_ENV];
   delete env.SEKIMORI_ADMIN_KEY;
 
-  const res = spawnSync(TSX_BIN, [MAIN_TS, "doctor", configPath, "--json"], { encoding: "utf8", env });
+  const res = spawnSync(process.execPath, [TSX_CLI, MAIN_TS, "doctor", configPath, "--json"], { encoding: "utf8", env });
 
   assert.equal(res.status, 1);
   const parsed = JSON.parse(res.stdout) as { ok: boolean; checks: { name: string; status: string; detail: string }[] };

@@ -15,12 +15,29 @@
 import { createServer } from "node:http";
 
 const port = Number(process.argv[2] ?? process.env.PORT ?? 9999);
+const MAX_REQUEST_BYTES = 64 * 1024;
+
+class BodyTooLargeError extends Error {}
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let raw = "";
-    req.on("data", (chunk) => (raw += chunk.toString("utf8")));
-    req.on("end", () => resolve(raw));
+    let size = 0;
+    let settled = false;
+    req.on("data", (chunk) => {
+      if (settled) return;
+      size += chunk.length;
+      if (size > MAX_REQUEST_BYTES) {
+        settled = true;
+        raw = "";
+        reject(new BodyTooLargeError("mock request body exceeds 64 KiB"));
+        return;
+      }
+      raw += chunk.toString("utf8");
+    });
+    req.on("end", () => {
+      if (!settled) resolve(raw);
+    });
     req.on("error", reject);
   });
 }
@@ -36,7 +53,22 @@ const server = createServer(async (req, res) => {
     return;
   }
 
-  const raw = await readBody(req);
+  let raw;
+  try {
+    raw = await readBody(req);
+  } catch (error) {
+    const tooLarge = error instanceof BodyTooLargeError;
+    res.writeHead(tooLarge ? 413 : 400, { "content-type": "application/json" });
+    res.end(
+      JSON.stringify({
+        error: {
+          type: tooLarge ? "request_too_large_error" : "invalid_request_error",
+          message: tooLarge ? "mock request body exceeds 64 KiB" : "could not read request body",
+        },
+      }),
+    );
+    return;
+  }
   let payload;
   try {
     payload = JSON.parse(raw);
@@ -111,6 +143,6 @@ const server = createServer(async (req, res) => {
   );
 });
 
-server.listen(port, () => {
-  console.log(`[mock-upstream] listening on http://localhost:${port} (Anthropic Messages API stub)`);
+server.listen(port, "127.0.0.1", () => {
+  console.log(`[mock-upstream] listening on http://127.0.0.1:${port} (Anthropic Messages API stub)`);
 });

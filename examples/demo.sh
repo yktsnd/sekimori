@@ -9,9 +9,6 @@
 #   npm install   # first time only
 #   bash examples/demo.sh
 #
-# Real-API mode (bonus; the default is always offline):
-#   SEKIMORI_DEMO_REAL=1 ANTHROPIC_API_KEY=sk-... bash examples/demo.sh
-#
 # Requirements: bash / curl / node (after npm install). Nothing else. jq is
 # not used (JSON fields are read with a small bundled node script instead).
 
@@ -20,17 +17,11 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SEKIMORI_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-REAL_MODE="${SEKIMORI_DEMO_REAL:-0}"
 UPSTREAM_PORT="${SEKIMORI_DEMO_UPSTREAM_PORT:-19999}"
 SEKIMORI_PORT="${SEKIMORI_DEMO_PORT:-18787}"
-ADMIN_KEY="demo-admin-key"
+ADMIN_KEY="demo-admin-key-32-bytes-minimum-0001"
 MODEL="claude-haiku-4-5-20251001"
 DISALLOWED_MODEL="claude-opus-4-1-20250805"
-
-if [ "$REAL_MODE" = "1" ] && [ -z "${ANTHROPIC_API_KEY:-}" ]; then
-  echo "SEKIMORI_DEMO_REAL=1 requires ANTHROPIC_API_KEY to be set" >&2
-  exit 1
-fi
 
 # --- Working directory (mktemp -d). Always cleaned up via trap; never dirties the repo ---
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/sekimori-demo.XXXXXX")"
@@ -100,7 +91,7 @@ assert_status() {
 req() {
   # req METHOD PATH [BEARER] [JSON_BODY]
   local method="$1" path="$2" bearer="${3:-}" data="${4:-}"
-  local args=(-s -D "$HDRS" -o "$BODY" -w '%{http_code}' -X "$method" "http://localhost:$SEKIMORI_PORT$path")
+  local args=(-s -D "$HDRS" -o "$BODY" -w '%{http_code}' -X "$method" "http://127.0.0.1:$SEKIMORI_PORT$path")
   [ -n "$bearer" ] && args+=(-H "Authorization: Bearer $bearer")
   if [ -n "$data" ]; then
     args+=(-H "Content-Type: application/json" -d "$data")
@@ -128,27 +119,17 @@ wait_for_http() {
 act "Act 1: Going live"
 # ============================================================================
 
-if [ "$REAL_MODE" = "1" ]; then
-  note "real-API mode (SEKIMORI_DEMO_REAL=1): skipping the mock upstream and connecting to the real Anthropic API"
-  UPSTREAM_BASE_URL="https://api.anthropic.com"
-  UPSTREAM_API_KEY_ENV="ANTHROPIC_API_KEY"
-  MONTHLY_USD=5
-  ALICE_MAX_TOKENS=16
-  MALLORY_SMALL_MAX_TOKENS=16
-  MALLORY_HUGE_MAX_TOKENS=200000
-else
-  note "starting the mock upstream (examples/mock-upstream.mjs) - it stands in for the real Anthropic API"
-  node "$SEKIMORI_DIR/examples/mock-upstream.mjs" "$UPSTREAM_PORT" >"$UPSTREAM_LOG" 2>&1 &
-  UPSTREAM_PID=$!
-  wait_for_http "http://localhost:$UPSTREAM_PORT/healthz-not-a-real-path"
-  UPSTREAM_BASE_URL="http://localhost:$UPSTREAM_PORT"
-  UPSTREAM_API_KEY_ENV="SEKIMORI_DEMO_UPSTREAM_KEY"
-  export SEKIMORI_DEMO_UPSTREAM_KEY="dummy-mock-key"
-  MONTHLY_USD=5
-  ALICE_MAX_TOKENS=50
-  MALLORY_SMALL_MAX_TOKENS=50
-  MALLORY_HUGE_MAX_TOKENS=200000
-fi
+note "starting the mock upstream (examples/mock-upstream.mjs) - it stands in for the real Anthropic API"
+node "$SEKIMORI_DIR/examples/mock-upstream.mjs" "$UPSTREAM_PORT" >"$UPSTREAM_LOG" 2>&1 &
+UPSTREAM_PID=$!
+wait_for_http "http://127.0.0.1:$UPSTREAM_PORT/healthz-not-a-real-path"
+UPSTREAM_BASE_URL="http://127.0.0.1:$UPSTREAM_PORT"
+UPSTREAM_API_KEY_ENV="SEKIMORI_DEMO_UPSTREAM_KEY"
+export SEKIMORI_DEMO_UPSTREAM_KEY="dummy-mock-key"
+MONTHLY_USD=5
+ALICE_MAX_TOKENS=50
+MALLORY_SMALL_MAX_TOKENS=50
+MALLORY_HUGE_MAX_TOKENS=200000
 
 cat > "$CONFIG_PATH" <<EOF
 {
@@ -172,7 +153,7 @@ if [ ! -x "$TSX_BIN" ]; then
 fi
 SEKIMORI_ADMIN_KEY="$ADMIN_KEY" "$TSX_BIN" "$SEKIMORI_DIR/src/main.ts" "$CONFIG_PATH" >"$SEKIMORI_LOG" 2>&1 &
 SEKIMORI_PID=$!
-wait_for_http "http://localhost:$SEKIMORI_PORT/healthz"
+wait_for_http "http://127.0.0.1:$SEKIMORI_PORT/healthz"
 
 note "the startup summary (a declaration of what is being protected; added in DX review A-3) prints as-is:"
 sed 's/^/        /' "$SEKIMORI_LOG"
@@ -185,8 +166,8 @@ status=$(req POST /admin/tokens "$ADMIN_KEY" '{"name":"alice","dailyUsd":1.0}')
 assert_status "issue a token for alice (dailyUsd: \$1.0 - a normal user)" 201 "$status"
 ALICE_TOKEN=$(jf token)
 
-status=$(req POST /admin/tokens "$ADMIN_KEY" '{"name":"mallory","dailyUsd":0.001}')
-assert_status "issue a token for mallory (dailyUsd: \$0.001 - set up to hit her cap immediately)" 201 "$status"
+status=$(req POST /admin/tokens "$ADMIN_KEY" '{"name":"mallory","dailyUsd":0.002}')
+assert_status "issue a token for mallory (dailyUsd: \$0.002 - set up to hit her cap immediately)" 201 "$status"
 MALLORY_TOKEN=$(jf token)
 MALLORY_ID=$(jf id)
 

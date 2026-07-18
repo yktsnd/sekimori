@@ -18,6 +18,26 @@ export interface UpstreamUsage {
 
 const MICROS_PER_MILLION = 1_000_000;
 
+/** Numeric safety boundary for configured and reserved USD amounts. */
+export const MAX_USD_AMOUNT = 1_000_000_000;
+
+/**
+ * The two-column ModelPricing table assumes ordinary, flat per-token input
+ * pricing. Keeping requests below this byte/token upper bound prevents an
+ * invite token from crossing long-context pricing tiers that the table cannot
+ * represent. This is deliberately a byte limit, so it is conservative across
+ * every UTF-8 language and JSON tool schema.
+ */
+export const MAX_ACCOUNTABLE_REQUEST_BYTES = 64 * 1024;
+
+/**
+ * Provider tokenizers add message framing that is not present in the client
+ * JSON. Reserve a fixed input allowance on top of the deliberately
+ * conservative one-token-per-byte estimate so even very small requests have
+ * room for that provider-controlled overhead.
+ */
+export const INPUT_TOKEN_SAFETY_MARGIN = 1024;
+
 /**
  * Rough estimate of the request's input tokens (the goal is order-of-magnitude
  * protection, not precision):
@@ -29,14 +49,31 @@ export function estimateInputTokens(messages: unknown, system: string | null | u
   return Math.ceil(byteLength / 4);
 }
 
+/**
+ * Conservative upper bound for a complete API request. Unlike the legacy
+ * messages+system helper above, this includes tool schemas and every other
+ * client-controlled field that an upstream tokenizer can charge for. One
+ * token per UTF-8 byte deliberately over-reserves rather than allowing an
+ * unpriced payload field to bypass a hard budget cap.
+ */
+export function estimateRequestTokens(request: unknown): number {
+  const serialized = JSON.stringify(request) ?? "";
+  return Buffer.byteLength(serialized, "utf8");
+}
+
 /** Worst-case cost (for the precheck): estimated input plus output at full max_tokens. */
 export function estimateWorstCost(params: {
-  messages: unknown;
+  /** Complete request payload. When supplied, it is used for the conservative input estimate. */
+  request?: unknown;
+  /** Legacy fallback for callers that only have messages/system. */
+  messages?: unknown;
   system?: string | null;
   maxTokens: number;
   pricing: ModelPricing;
 }): number {
-  const inputTokens = estimateInputTokens(params.messages, params.system);
+  const inputTokens =
+    (params.request === undefined ? estimateInputTokens(params.messages, params.system) : estimateRequestTokens(params.request)) +
+    INPUT_TOKEN_SAFETY_MARGIN;
   const inputCost = (inputTokens / MICROS_PER_MILLION) * params.pricing.inputPerMTok;
   const outputCost = (params.maxTokens / MICROS_PER_MILLION) * params.pricing.outputPerMTok;
   return inputCost + outputCost;

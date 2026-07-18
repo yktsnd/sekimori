@@ -1,0 +1,59 @@
+name: Question or support
+description: Ask for help using documented sekimori behavior
+title: "[Question]: "
+labels:
+  - question
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read SUPPORT.md before posting. Never include an API key, admin key,
+        invite token, private endpoint URL, personal data, or request/response
+        bodies. Vulnerabilities belong in a private security advisory.
+  - type: textarea
+    id: goal
+    attributes:
+      label: What are you trying to do?
+    validations:
+      required: true
+  - type: textarea
+    id: attempts
+    attributes:
+      label: What did you try?
+      description: Include commands and minimal redacted configuration where useful.
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: What happened?
+      description: Include exact error types, not credentials or message bodies.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: sekimori version or commit
+      placeholder: SemVer from npm, or a full commit SHA
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: Node.js v20.19.0 on Ubuntu 24.04
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Doctor check names and statuses
+      description: Paste only check names/statuses from doctor --json, with secrets removed.
+      placeholder: config_valid=ok; upstream_key_env=ok; store_writable=ok
+  - type: checkboxes
+    id: safe_to_publish
+    attributes:
+      label: Public-report safety
+      options:
+        - label: I removed all keys, tokens, private URLs, personal data, and request/response bodies.
+          required: true

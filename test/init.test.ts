@@ -19,8 +19,12 @@ import { runInit, parseInitArgs, parseModelSpec, INIT_HELP_TEXT, type InitIO } f
 import { validateConfig } from "../src/config.js";
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
-const TSX_BIN = join(REPO_ROOT, "node_modules/.bin/tsx");
+const TSX_CLI = join(REPO_ROOT, "node_modules", "tsx", "dist", "cli.mjs");
 const MAIN_TS = join(REPO_ROOT, "src/main.ts");
+// Windows process startup can be slow under antivirus while node:test runs
+// multiple files concurrently. Keep real-CLI checks bounded without turning a
+// busy but healthy CI runner into a false failure.
+const REAL_CLI_TIMEOUT_MS = 60_000;
 
 function tmpDir(prefix: string): string {
   return mkdtempSync(join(tmpdir(), prefix));
@@ -122,8 +126,12 @@ test("init: parseInitArgs parses every per-setting flag", () => {
     "--yes",
     "--port",
     "3000",
+    "--listen-host",
+    "0.0.0.0",
     "--upstream-url",
     "https://upstream.example.com",
+    "--upstream-timeout-ms",
+    "5000",
     "--model",
     "claude-haiku-4-5-20251001=1,5",
     "--monthly-usd",
@@ -143,7 +151,9 @@ test("init: parseInitArgs parses every per-setting flag", () => {
   if ("error" in parsed || "help" in parsed) return;
   assert.deepEqual(parsed.overrides, {
     port: 3000,
+    listenHost: "0.0.0.0",
     upstreamUrl: "https://upstream.example.com",
+    upstreamTimeoutMs: 5000,
     models: { "claude-haiku-4-5-20251001": { inputPerMTok: 1, outputPerMTok: 5 } },
     monthlyUsd: 10,
     dailyUsd: 2,
@@ -182,9 +192,10 @@ test("init: parseInitArgs rejects an invalid --port", () => {
   assert.ok("error" in parsedTooBig);
 });
 
-test("init: parseInitArgs rejects an invalid --upstream-url", () => {
-  const parsed = parseInitArgs(["--upstream-url", "not a url"]);
-  assert.ok("error" in parsed);
+test("init: parseInitArgs rejects an invalid or unsafe --upstream-url", () => {
+  for (const value of ["not a url", "ftp://upstream.example", "https://user:pass@upstream.example", "https://upstream.example?key=x"]) {
+    assert.ok("error" in parseInitArgs(["--upstream-url", value]), value);
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -218,10 +229,11 @@ test("init: parseInitArgs rejects an unknown --store value", () => {
   assert.ok("error" in parsed);
 });
 
-test("init: parseInitArgs rejects non-positive --monthly-usd / --daily-usd / --rate-limit", () => {
+test("init: parseInitArgs rejects invalid numeric budget and rate-limit values", () => {
   assert.ok("error" in parseInitArgs(["--monthly-usd", "0"]));
   assert.ok("error" in parseInitArgs(["--daily-usd", "-1"]));
   assert.ok("error" in parseInitArgs(["--rate-limit", "abc"]));
+  assert.ok("error" in parseInitArgs(["--rate-limit", "1.5"]));
 });
 
 test("init: parseInitArgs rejects a flag with a missing value", () => {
@@ -241,6 +253,22 @@ test("init: parseInitArgs accepts --store-path with --store file (or no --store 
   assert.ok(!("error" in withoutStoreFlag) && !("help" in withoutStoreFlag));
 });
 
+test("init: parseInitArgs rejects an invalid --listen-host or --upstream-timeout-ms", () => {
+  for (const host of ["example.com", "http://127.0.0.1", "*"]) {
+    assert.ok("error" in parseInitArgs(["--listen-host", host]), host);
+  }
+  for (const timeout of ["999", "900001", "1.5", "not-a-number"]) {
+    assert.ok("error" in parseInitArgs(["--upstream-timeout-ms", timeout]), timeout);
+  }
+});
+
+test("init: parseInitArgs rejects malformed CORS origins and an empty file-store path", () => {
+  for (const origin of ["*", "https://example.com/", "ftp://example.com"]) {
+    assert.ok("error" in parseInitArgs(["--cors-origin", origin]), origin);
+  }
+  assert.ok("error" in parseInitArgs(["--store-path", "   "]));
+});
+
 // ---------------------------------------------------------------------------
 // runInit: direct calls (no child process)
 // ---------------------------------------------------------------------------
@@ -256,8 +284,10 @@ test("init: --yes writes a default config that validateConfig accepts (env vars 
 
   const parsed = JSON.parse(readFileSync(cfgPath, "utf8"));
   assert.equal(parsed.port, 8787);
+  assert.equal(parsed.listenHost, "127.0.0.1");
   assert.equal(parsed.upstream.baseUrl, "https://api.anthropic.com");
   assert.equal(parsed.upstream.apiKeyEnv, "ANTHROPIC_API_KEY");
+  assert.equal(parsed.upstream.timeoutMs, 120_000);
   assert.ok(Object.keys(parsed.models).length > 0);
   assert.equal(parsed.budget.monthlyUsd, 30);
   assert.equal(parsed.budget.defaultDailyPerTokenUsd, 0.5);
@@ -273,7 +303,7 @@ test("init: --yes writes a default config that validateConfig accepts (env vars 
   // comment).
   t.after(resetRealEnv);
   process.env.ANTHROPIC_API_KEY = "sk-test-dummy";
-  process.env.SEKIMORI_ADMIN_KEY = "admin-test-dummy";
+  process.env.SEKIMORI_ADMIN_KEY = "admin-test-dummy-32-bytes-minimum-0001";
   assert.doesNotThrow(() => validateConfig(parsed));
 });
 
@@ -369,8 +399,12 @@ test("init: --yes with per-setting flags writes exactly those values, defaults e
       "--yes",
       "--port",
       "3000",
+      "--listen-host",
+      "0.0.0.0",
       "--upstream-url",
       "https://upstream.example.com",
+      "--upstream-timeout-ms",
+      "5000",
       "--model",
       "claude-haiku-4-5-20251001=1,5",
       "--monthly-usd",
@@ -396,7 +430,9 @@ test("init: --yes with per-setting flags writes exactly those values, defaults e
 
   const parsed = JSON.parse(readFileSync(cfgPath, "utf8"));
   assert.equal(parsed.port, 3000);
+  assert.equal(parsed.listenHost, "0.0.0.0");
   assert.equal(parsed.upstream.baseUrl, "https://upstream.example.com");
+  assert.equal(parsed.upstream.timeoutMs, 5000);
   assert.deepEqual(parsed.models, { "claude-haiku-4-5-20251001": { inputPerMTok: 1, outputPerMTok: 5 } });
   assert.equal(parsed.budget.monthlyUsd, 10);
   assert.equal(parsed.budget.defaultDailyPerTokenUsd, 0.25);
@@ -448,7 +484,7 @@ test("init: --yes --upstream-type bedrock writes the bedrock defaults (baseUrl, 
     else process.env.AWS_BEARER_TOKEN_BEDROCK = ORIGINAL_BEDROCK_KEY;
   });
   process.env.AWS_BEARER_TOKEN_BEDROCK = "dummy";
-  process.env.SEKIMORI_ADMIN_KEY = "admin-test-dummy";
+  process.env.SEKIMORI_ADMIN_KEY = "admin-test-dummy-32-bytes-minimum-0001";
   assert.doesNotThrow(() => validateConfig(parsed));
 });
 
@@ -675,15 +711,15 @@ test("init: interactive mode pre-answers flagged settings (prints an ack, no pro
 // explicitly require exercising the real entry point, not just the module.
 // ---------------------------------------------------------------------------
 
-test("init: real CLI - `sekimori init <path> --yes` writes a valid config and exits 0", { skip: !existsSync(TSX_BIN) }, (t) => {
+test("init: real CLI - `sekimori init <path> --yes` writes a valid config and exits 0", { skip: !existsSync(TSX_CLI) }, (t) => {
   const dir = tmpDir("sekimori-init-cli-yes-");
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const cfgPath = join(dir, "sekimori.config.json");
 
-  const result = spawnSync(TSX_BIN, [MAIN_TS, "init", cfgPath, "--yes"], {
+  const result = spawnSync(process.execPath, [TSX_CLI, MAIN_TS, "init", cfgPath, "--yes"], {
     cwd: REPO_ROOT,
     encoding: "utf8",
-    timeout: 20_000,
+    timeout: REAL_CLI_TIMEOUT_MS,
   });
 
   assert.equal(result.status, 0, `stdout: ${result.stdout}\nstderr: ${result.stderr}`);
@@ -694,7 +730,7 @@ test("init: real CLI - `sekimori init <path> --yes` writes a valid config and ex
 
 test(
   "init: real CLI - non-TTY stdin without --yes exits non-zero and never hangs",
-  { skip: !existsSync(TSX_BIN) },
+  { skip: !existsSync(TSX_CLI) },
   (t) => {
     const dir = tmpDir("sekimori-init-cli-notty-");
     t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -703,11 +739,11 @@ test(
     // Piping empty stdin in (rather than inheriting the test runner's TTY,
     // which may or may not be one) reproduces `printf '' | ... init` from
     // the acceptance criteria: stdin is a pipe, never a TTY.
-    const result = spawnSync(TSX_BIN, [MAIN_TS, "init", cfgPath], {
+    const result = spawnSync(process.execPath, [TSX_CLI, MAIN_TS, "init", cfgPath], {
       cwd: REPO_ROOT,
       input: "",
       encoding: "utf8",
-      timeout: 20_000,
+      timeout: REAL_CLI_TIMEOUT_MS,
     });
 
     assert.notEqual(result.status, 0);
@@ -716,22 +752,22 @@ test(
   },
 );
 
-test("init: real CLI - `sekimori init --help` exits 0 and prints usage", { skip: !existsSync(TSX_BIN) }, () => {
-  const result = spawnSync(TSX_BIN, [MAIN_TS, "init", "--help"], {
+test("init: real CLI - `sekimori init --help` exits 0 and prints usage", { skip: !existsSync(TSX_CLI) }, () => {
+  const result = spawnSync(process.execPath, [TSX_CLI, MAIN_TS, "init", "--help"], {
     cwd: REPO_ROOT,
     encoding: "utf8",
-    timeout: 20_000,
+    timeout: REAL_CLI_TIMEOUT_MS,
   });
   assert.equal(result.status, 0, `stdout: ${result.stdout}\nstderr: ${result.stderr}`);
   assert.match(result.stdout, /Usage: sekimori init/);
 });
 
-test("init: real CLI - `sekimori --help` and `sekimori help` exit 0 and print top-level usage", { skip: !existsSync(TSX_BIN) }, () => {
+test("init: real CLI - `sekimori --help` and `sekimori help` exit 0 and print top-level usage", { skip: !existsSync(TSX_CLI) }, () => {
   for (const helpArg of ["--help", "help"]) {
-    const result = spawnSync(TSX_BIN, [MAIN_TS, helpArg], {
+    const result = spawnSync(process.execPath, [TSX_CLI, MAIN_TS, helpArg], {
       cwd: REPO_ROOT,
       encoding: "utf8",
-      timeout: 20_000,
+      timeout: REAL_CLI_TIMEOUT_MS,
     });
     assert.equal(result.status, 0, `stdout: ${result.stdout}\nstderr: ${result.stderr}`);
     assert.match(result.stdout, /Usage:/);
@@ -741,15 +777,16 @@ test("init: real CLI - `sekimori --help` and `sekimori help` exit 0 and print to
 
 test(
   "init: real CLI - per-setting flags with --yes write exactly those values through the real entry point",
-  { skip: !existsSync(TSX_BIN) },
+  { skip: !existsSync(TSX_CLI) },
   (t) => {
     const dir = tmpDir("sekimori-init-cli-flags-");
     t.after(() => rmSync(dir, { recursive: true, force: true }));
     const cfgPath = join(dir, "sekimori.config.json");
 
     const result = spawnSync(
-      TSX_BIN,
+      process.execPath,
       [
+        TSX_CLI,
         MAIN_TS,
         "init",
         cfgPath,
@@ -763,7 +800,7 @@ test(
         "--cors-origin",
         "https://example.com",
       ],
-      { cwd: REPO_ROOT, encoding: "utf8", timeout: 20_000 },
+      { cwd: REPO_ROOT, encoding: "utf8", timeout: REAL_CLI_TIMEOUT_MS },
     );
 
     assert.equal(result.status, 0, `stdout: ${result.stdout}\nstderr: ${result.stderr}`);
@@ -777,16 +814,16 @@ test(
 
 test(
   "init: real CLI - a bedrock config from `init --upstream-type bedrock` passes `doctor` with the bedrock env vars set (issue #17)",
-  { skip: !existsSync(TSX_BIN) },
+  { skip: !existsSync(TSX_CLI) },
   (t) => {
     const dir = tmpDir("sekimori-init-cli-bedrock-doctor-");
     t.after(() => rmSync(dir, { recursive: true, force: true }));
     const cfgPath = join(dir, "sekimori.config.json");
 
-    const initResult = spawnSync(TSX_BIN, [MAIN_TS, "init", cfgPath, "--yes", "--upstream-type", "bedrock"], {
+    const initResult = spawnSync(process.execPath, [TSX_CLI, MAIN_TS, "init", cfgPath, "--yes", "--upstream-type", "bedrock"], {
       cwd: REPO_ROOT,
       encoding: "utf8",
-      timeout: 20_000,
+      timeout: REAL_CLI_TIMEOUT_MS,
     });
     assert.equal(initResult.status, 0, `stdout: ${initResult.stdout}\nstderr: ${initResult.stderr}`);
 
@@ -794,11 +831,15 @@ test(
     assert.equal(parsed.upstream.type, "bedrock");
     assert.equal(parsed.upstream.apiKeyEnv, "AWS_BEARER_TOKEN_BEDROCK");
 
-    const doctorResult = spawnSync(TSX_BIN, [MAIN_TS, "doctor", cfgPath, "--json"], {
+    const doctorResult = spawnSync(process.execPath, [TSX_CLI, MAIN_TS, "doctor", cfgPath, "--json"], {
       cwd: REPO_ROOT,
       encoding: "utf8",
-      timeout: 20_000,
-      env: { ...process.env, AWS_BEARER_TOKEN_BEDROCK: "dummy", SEKIMORI_ADMIN_KEY: "dummy" },
+      timeout: REAL_CLI_TIMEOUT_MS,
+      env: {
+        ...process.env,
+        AWS_BEARER_TOKEN_BEDROCK: "bedrock-upstream-test-key",
+        SEKIMORI_ADMIN_KEY: "bedrock-admin-key-32-bytes-minimum-0001",
+      },
     });
     assert.equal(doctorResult.status, 0, `stdout: ${doctorResult.stdout}\nstderr: ${doctorResult.stderr}`);
     const doctorJson = JSON.parse(doctorResult.stdout) as { ok: boolean };

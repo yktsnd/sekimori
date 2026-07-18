@@ -1,120 +1,280 @@
-# sekimori(関守)
+# sekimori (関守)
 
 [![CI](https://github.com/yktsnd/sekimori/actions/workflows/ci.yml/badge.svg)](https://github.com/yktsnd/sekimori/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-> AI プロトタイプを、API キーを晒さず・予算を溶かさず・悪用されずに公開するための、最小のセルフホスト型ゲートウェイ。
+[English](README.md)
 
-**「週末に作った AI プロトタイプを、友人・SNS・β ユーザーに触らせたい」瞬間のための道具。** あなたのアプリと Anthropic Messages API の間に立ち、**設定ファイル 1 枚 + プロセス 1 個**で、キー秘匿・確実に効く予算上限・招待トークン認証・レート制限・system プロンプトのサーバー側固定・SSE 素通しを提供する。
+> Anthropic を使うプロトタイプを、プロバイダーの API キーをブラウザに置かずに共有するための、小さなセルフホスト型の予算・アクセス防護ゲートウェイ。
 
-名前は江戸時代の関所の番人(関守)から。通行手形(トークン)を検め、通行量(予算)を管理する。
+sekimori はアプリと Anthropic Messages API の間に立つ。1 個のプロセスと
+1 枚の設定ファイルで、招待トークン認証、モデル許可リスト、招待ごとの日次・
+全体の月次予算上限、レート制限、任意の system プロンプト固定、SSE 中継を行う。
 
-**単一プロセス前提**: レート制限・メモリストアはプロセス内メモリで完結する。水平スケールには対応せず、チーム/企業の本番運用は対象外。個人が身内に公開する規模(数十〜数千リクエスト/日)のための設計。
+対象は意図的に狭い。オーナー 1 人、プロセス 1 個、テキストの Messages
+リクエスト、Anthropic 直結または Amazon Bedrock の非ストリーミング実行に
+絞っている。汎用 LLM ゲートウェイや企業向けコントロールプレーンではない。
 
-**この設置・運用は、あなたのコーディングエージェントが全部代行できる。** アプリ開発が「〜を作って」とエージェントに投げる形になり、デプロイや API 課金の仕組みを学ぶ気がないなら — sekimori はエージェントが作ったアプリとあなたの財布の間に立つ独立した安全境界になる: アプリにバグがあってもキーはサーバー側に留まり、支出は上限で必ず止まる。エージェント向けの運用手順書は [AGENTS.md](AGENTS.md)。オーナー(あなた)向けには、API キーとは何か・ホスティングとは何か・いくらかかるか・手持ちの AWS クレジットの使い方まで、予備知識ゼロで読めるガイドを用意した: [docs/owner-guide.ja.md](docs/owner-guide.ja.md)。
-
-## まず 1 コマンドで全部見る
-
-sekimori が守っている 6 つの瞬間(トークンなし侵入の遮断・予算超過・レート制限・許可外モデル拒否・トークン失効・その間も正当な利用者は普通に使える)を、実 API キーなし・課金ゼロで通しで見られる:
-
-```bash
-npm install        # 初回のみ
-bash examples/demo.sh
+```text
+エンドユーザーのアプリ         sekimori                    プロバイダー
+招待トークン  ------------->  認証・制限  ------------->  Anthropic / Bedrock
+                              プロバイダーキーはここに置く
 ```
 
-擬似上流と sekimori を一時 config で起動し、`alice`(普通の利用者)と `mallory`(すぐ上限に達する設定)のトークンで全シナリオを実行し、各ステップの期待 HTTP ステータスを検証して必ず後片付けする。不一致が 1 つでもあれば非ゼロ終了する(E2E スモークテストを兼ねる)。実 API を使うおまけモード: `SEKIMORI_DEMO_REAL=1 ANTHROPIC_API_KEY=sk-... bash examples/demo.sh`(既定は必ずオフライン)。
+名前は、通行手形を確認した関所の番人「関守」に由来する。
 
-## クイックスタート(オフライン・実キー不要)
+## まず保護動作をオフラインで試す
 
-sekimori はまだ npm に公開されていない([ROADMAP.md](ROADMAP.md) 参照 —
-レジストリ公開は credential ゲートの v0.5 ステップ)。それまではクローンして
-`npx tsx src/main.ts` で実行する。パッケージ化自体はすでに実装・テスト済み
-(`npm run build` + `sekimori` bin)なので、以下は公開後の `npx sekimori` が
-どう動くかを示している。
+必要なのは Node.js 20 以降だけ。デモ自体はプロバイダーへの通信を行わず、
+プロバイダーキーも課金も不要。
 
 ```bash
 npm install
+npm run demo
+```
 
-# 1. 擬似上流(Anthropic Messages API のスタブ)を :9999 で起動
+ローカルの模擬プロバイダーと一時的な sekimori を起動し、トークンなしの拒否、
+正常なリクエスト、許可外モデルの拒否、予算遮断、レート制限、トークン失効、
+使用量表示を含む 18 の動作を確認する。不一致があれば非ゼロで終了する。
+将来 npm レジストリから導入した場合は `npx sekimori demo` が同じ入口になる。
+
+> **公開状況:** ソースリポジトリは公開済みで、この候補の version は `0.2.0`。
+> ただし npm パッケージ、version tag / GitHub Release、実環境での HTTPS
+> デプロイはまだ検証されていない。クローンから評価し、残るゲートは
+> [RELEASING.md](RELEASING.md) を参照すること。
+
+## 対応範囲
+
+| 領域 | 現在対応 | 非対応 |
+|---|---|---|
+| 上流 | Anthropic Messages API、Amazon Bedrock `InvokeModel` | その他のプロバイダー |
+| メッセージ | 通常のテキストリクエスト | tools、prompt caching、マルチモーダル、その他プロバイダー管理機能 |
+| レスポンス | Anthropic の非ストリーミングと SSE、Bedrock の非ストリーミング | Bedrock streaming |
+| アクセス | 失効可能な招待 bearer token、別系統の admin bearer key | OAuth、アカウント、チーム |
+| 負荷上限 | token ごとの rolling/active limit、process 全体で active message 256 件まで | volumetric DDoS 防御 |
+| 支出制御 | 招待ごとの日次・全体の月次設定上限 | プロバイダー側の請求制御、価格の自動取得 |
+| 永続化 | 再起動をまたぐ file store、ローカル評価用 memory store | データベース、共有状態、複数 replica |
+| 配置 | HTTPS の後ろで 1 プロセス、file store ごとの排他 lock | 水平スケール、複数プロセス、ロードバランシング |
+
+予算上限の正確さは、設定に宣言したモデル価格に依存する。sekimori は保守的に
+予約し、使用量が曖昧なら fail-closed にするが、古い・不完全な価格宣言は訂正
+できない。安全境界として使う前に [セキュリティモデル](docs/security-model.md) を
+読むこと。設定する USD 額は $1,000,000,000 以下に制限され、floating-point
+precision で正の debit を表現できない場合も fail-closed にする。
+
+## クローンからのクイックスタート（オフライン）
+
+以下は実際の API を確認する長い手順。最初に見るだけなら上の
+`npm run demo` を使う。
+
+### 1. インストールして模擬プロバイダーを起動
+
+```bash
+npm install
 node examples/mock-upstream.mjs 9999
 ```
 
-別ターミナルで:
+### 2. 設定を作って sekimori を起動
+
+macOS / Linux では別ターミナルで実行する。
 
 ```bash
-# 2. config を用意して sekimori を起動: 対話式ジェネレータ(推奨。JSON を手編集せずに済む)か、
-#    example をコピーして手編集するかを選べる
-npx tsx src/main.ts init          # クローンから実行する場合(現在)。パッケージ公開後は `npx sekimori init`
-# または:
-cp sekimori.config.example.json sekimori.config.json
-#    sekimori.config.json の upstream.baseUrl を "http://localhost:9999" に変更
-
-# クローンから実行する場合(現在):
-ANTHROPIC_API_KEY=dummy SEKIMORI_ADMIN_KEY=change-me npx tsx src/main.ts sekimori.config.json
-
-# インストール済みパッケージから実行する場合(v0.5 の npm 公開後。動作は同じ):
-ANTHROPIC_API_KEY=dummy SEKIMORI_ADMIN_KEY=change-me npx sekimori sekimori.config.json
+npx tsx src/main.ts init --yes --upstream-url http://localhost:9999
+export ANTHROPIC_API_KEY=dummy
+export SEKIMORI_ADMIN_KEY="$(node -e 'console.log(require("crypto").randomBytes(32).toString("base64url"))')"
+npx tsx src/main.ts sekimori.config.json &
+GATEWAY_PID=$!
 ```
 
+ここで `dummy` を使えるのは、上流がローカルの模擬プロバイダーだからである。
+実際のプロバイダーキーを設定ファイル、クライアント、リポジトリ、ログ、コピー
+するコマンドに書かない。`upstream.apiKeyEnv` が指定する環境変数だけで渡す。
+
+Windows PowerShell では次を使う。
+
+```powershell
+npx tsx src/main.ts init --yes --upstream-url http://localhost:9999
+$env:ANTHROPIC_API_KEY = "dummy"
+$env:SEKIMORI_ADMIN_KEY = & node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+$gateway = Start-Process -FilePath "npx.cmd" `
+  -ArgumentList @("tsx", "src/main.ts", "sekimori.config.json") `
+  -WindowStyle Hidden -PassThru
+```
+
+起動後、同じ shell で確認する（起動中なら少し待って再実行する）。
+macOS / Linux:
+
 ```bash
-# 3. 招待トークンを発行してゲートウェイ越しに会話する
-curl -s -X POST http://localhost:8787/admin/tokens \
-  -H "Authorization: Bearer change-me" \
+curl -fsS http://127.0.0.1:8787/healthz
+# {"ok":true}
+```
+
+Windows PowerShell:
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:8787/healthz"
+# ok
+# --
+# True
+```
+
+### 3. 招待を発行してゲートウェイを呼ぶ
+
+macOS / Linux では、手順 2 と同じ shell で続ける。
+
+```bash
+curl -sS -X POST http://127.0.0.1:8787/admin/tokens \
+  -H "Authorization: Bearer $SEKIMORI_ADMIN_KEY" \
   -H "Content-Type: application/json" \
   -d '{"name":"demo","dailyUsd":1}'
-# => {"id":"...","token":"smk_..."}
+# レスポンスに一度だけ現れる `token` をコピー:
+export TOKEN=smk_xxxxxxxx
 
-TOKEN=smk_xxxxxxxx  # 上のレスポンスの token
-
-curl -s -X POST http://localhost:8787/v1/messages \
+curl -sS -X POST http://127.0.0.1:8787/v1/messages \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"model":"claude-haiku-4-5-20251001","max_tokens":100,"messages":[{"role":"user","content":"hello"}]}'
 ```
 
-本番に向けるには `upstream.baseUrl` を `https://api.anthropic.com` にし、実際の `ANTHROPIC_API_KEY` を設定する。
+Windows PowerShell では、手順 2 と同じ shell で続ける。
 
-ブラウザから試す場合は [`examples/chat.html`](examples/chat.html) を配信し(例: `python3 -m http.server 8000 --directory examples`)、配信元 Origin を `cors.allowedOrigins` に追加して再起動する。`chat.html` は**自分のアプリの出発点としてコピーする前提のリファレンスクライアント**: 開発者が編集する `CONFIG` ブロック、エンドユーザーの入力は招待トークンのみ(`localStorage` 保持)、使用量の常時表示、`error.type` ごとの利用者向けエラー文言を備える。
+```powershell
+$adminHeaders = @{ Authorization = "Bearer $env:SEKIMORI_ADMIN_KEY" }
+$invite = Invoke-RestMethod -Method Post `
+  -Uri "http://127.0.0.1:8787/admin/tokens" `
+  -Headers $adminHeaders `
+  -ContentType "application/json" `
+  -Body '{"name":"demo","dailyUsd":1}'
+
+$userHeaders = @{ Authorization = "Bearer $($invite.token)" }
+$message = @{
+  model = "claude-haiku-4-5-20251001"
+  max_tokens = 100
+  messages = @(@{ role = "user"; content = "hello" })
+} | ConvertTo-Json -Depth 5
+
+Invoke-RestMethod -Method Post `
+  -Uri "http://127.0.0.1:8787/v1/messages" `
+  -Headers $userHeaders `
+  -ContentType "application/json" `
+  -Body $message
+```
+
+終了時は macOS / Linux なら `kill "$GATEWAY_PID"`、PowerShell なら
+`Stop-Process -Id $gateway.Id` でバックグラウンドの gateway を止め、模擬
+プロバイダーを動かしたターミナルも停止する。
+
+平文の招待トークンが現れるのは作成レスポンスだけ。対象ユーザーに安全に渡し、
+漏えいした場合は失効させる。
+
+### 任意: server-side で Anthropic TypeScript SDK を使う
+
+現在の SDK は `baseURL`、nullable な `apiKey`、bearer `authToken` を公開している
+（[公式 client source](https://github.com/anthropics/anthropic-sdk-typescript/blob/main/src/client.ts)）。
+信頼できる server-side app では、それらを sekimori に向け、対応する通常の
+[text request shape](docs/configuration.md#cost-accountable-request-scope) だけを送る。
+
+```bash
+npm install @anthropic-ai/sdk
+```
+
+```ts
+import Anthropic from "@anthropic-ai/sdk";
+
+if (
+  !process.env.SEKIMORI_URL ||
+  !process.env.SEKIMORI_INVITE_TOKEN ||
+  !process.env.SEKIMORI_MODEL
+) {
+  throw new Error("SEKIMORI_URL, SEKIMORI_INVITE_TOKEN, and SEKIMORI_MODEL are required");
+}
+
+const client = new Anthropic({
+  baseURL: process.env.SEKIMORI_URL,
+  apiKey: null,
+  authToken: process.env.SEKIMORI_INVITE_TOKEN!,
+  maxRetries: 0,
+});
+
+const message = await client.messages.create({
+  model: process.env.SEKIMORI_MODEL!,
+  max_tokens: 100,
+  messages: [{ role: "user", content: "hello" }],
+});
+```
+
+`SEKIMORI_URL` は gateway base URL（`/v1/messages` を付けない）、
+`SEKIMORI_MODEL` は設定の allowlist と完全一致する値にする。
+`maxRetries: 0` により retry の判断を明示的にする。timeout など結果が曖昧な場合、
+sekimori は予約額を保守的に維持するため、隠れた自動 retry は別の provider call と
+予約を発生させ得る。SDK の browser 利用を有効にしたり、invite token を frontend
+code に埋め込んだりしない。browser app は fetch ベースの
+[`examples/chat.html`](examples/chat.html) を出発点にする。
+
+## localhost 以外へ配置する前に
+
+- file store を使う。memory store は再起動すると使用量がリセットされる。
+- HTTPS の後ろで、プロセス / replica を必ず 1 個だけ動かす。
+  同じ state file を使う 2 個目のプロセスは隣接する `<state>.lock` により拒否
+  される。生きている所有プロセスを止めずに lock を削除しない。hard crash 後は
+  同じ state path を使うプロセスがないと確認してから stale lock を削除し、再起動
+  する。
+- `rateLimit.requestsPerMinute` は 1–10,000。active message が process 全体で 256
+  件ある間は 257 件目を拒否する。これは memory/availability の境界であり、capacity
+  や DDoS 防御の保証ではない。
+- localhost / literal loopback 以外のプロバイダー・ブラウザ Origin には HTTPS
+  を使う。ブラウザの Origin を完全一致で指定し、wildcard CORS は使わない。
+- 現在のプロバイダー価格とモデルアクセスを確認し、オーナーが承認した予算を
+  設定する。sekimori は価格を取得しない。
+- クライアントが system プロンプトを変更する必要がなければ固定する。
+- プロバイダーキーと admin key は別々に生成してサーバー側だけに置く。両方とも
+  visible ASCII（`0x21`–`0x7e`、空白・control・非 ASCII なし）だけを使い、admin
+  key は 32 文字以上にする。設定・環境変更後は毎回 `sekimori doctor` を実行する。
+- 招待発行前に [AGENTS.md](AGENTS.md) の配置検証を実行する。
+
+ブラウザ用の参照実装は [`examples/chat.html`](examples/chat.html)。自分のアプリへ
+コピーし、`CONFIG` を編集して `cors.allowedOrigins` に列挙した Origin から配信
+する。招待トークンを `localStorage` に保持するため、XSS に対して信頼できる
+フロントエンドでのみ使う。
 
 ## ドキュメント
 
 | したいこと | 読む場所 |
 |---|---|
-| アプリの持ち主だがデプロイ・課金が分からない(API キーとは・ホスティングとは・費用・AWS クレジットの使い方) | [docs/owner-guide.ja.md](docs/owner-guide.ja.md) / [English](docs/owner-guide.md) |
-| コーディングエージェントとして運用する(決定的コマンド・検証・遵守ルール) | [AGENTS.md](AGENTS.md) |
-| 設定する | [docs/configuration.md](docs/configuration.md) |
-| API を呼ぶ・管理する(全エンドポイント・curl 例・エラー型・`Retry-After`) | [docs/api.md](docs/api.md) |
-| 設計制約を理解する(fail-closed の判断・拡張点) | [docs/design.md](docs/design.md) |
-| 今後の予定を知る | [ROADMAP.md](ROADMAP.md) |
-| 貢献する | [CONTRIBUTING.md](CONTRIBUTING.md) |
-| なぜこう作ったかの経緯(ラウンド記録・日本語) | [docs/history/](docs/history/) |
+| 予備知識なしで課金・認証情報・ホスティングを準備する | [オーナーガイド](docs/owner-guide.ja.md) / [English](docs/owner-guide.md) |
+| コーディングエージェントとして運用する | [AGENTS.md](AGENTS.md) |
+| 設定する | [設定リファレンス](docs/configuration.md) |
+| API を呼ぶ・管理する | [API リファレンス](docs/api.md) |
+| 保証、前提、障害時の動作を理解する | [セキュリティモデル](docs/security-model.md) |
+| 設計制約と拡張点を理解する | [設計](docs/design.md) |
+| 貢献する・質問する | [CONTRIBUTING.md](CONTRIBUTING.md) / [SUPPORT.md](SUPPORT.md) |
+| 参加ルールと意思決定を理解する | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) / [GOVERNANCE.md](GOVERNANCE.md) |
+| 脆弱性を非公開で報告する | [SECURITY.md](SECURITY.md) |
+| 一般公開を準備する | [RELEASING.md](RELEASING.md) |
+| 変更履歴を確認する | [CHANGELOG.md](CHANGELOG.md) |
+| 残る予定を確認する | [ROADMAP.md](ROADMAP.md) |
 
-一次言語は英語([README.md](README.md))。本ファイルはその日本語版で、内容が食い違う場合は英語版を正とする。
+一次言語は英語（[README.md](README.md)）。内容が食い違う場合は英語版を正とする。
 
-## テスト・型チェック
+## 開発時の検証
 
 ```bash
-npm test          # node:test。モック上流を内包しており実 API キー不要
-npm run typecheck # tsc --noEmit
-npm run build     # tsc -> dist/(ESM)。`sekimori` bin の実体
-npm run test:pack # tarball を作って新規インストールし、実際の bin を起動して確認するパッケージングのスモークテスト
+npm run typecheck
+npm test
+npm run demo
+npm run test:pack
 ```
 
-## LiteLLM で足りる人へ
+テストとデモは既定でオフライン。pack smoke test は tarball を作り、一時的な空の
+プロジェクトへ導入し、インストールされた実体、同梱デモ、doctor、HTTP 往復を
+検証する。
 
-複数プロバイダ統合・チーム運用・Postgres ベースの予算管理が要るなら [LiteLLM Proxy](https://github.com/BerriAI/litellm) の方が適している。sekimori はその手前、「Claude 専用(Anthropic 直結または Amazon Bedrock)・個人が身内に公開するだけ・依存は hono だけ」という一点に絞った道具。
+## スコープ
 
-## 実装しないこと(非目標)
+複数プロバイダー、チーム管理、データベース、ダッシュボード、複数 replica が
+必要なら、その要件向けのゲートウェイを選ぶこと。sekimori はマルチテナント
+SaaS、課金代行、prompt 管理、cache、retry、水平スケールを意図的に実装しない。
 
-マルチテナント SaaS、課金代行、ダッシュボード、プロンプト管理、キャッシュ、リトライ、100+ プロバイダ対応、水平スケール。詳細は [docs/design.md](docs/design.md) と [CONTRIBUTING.md](CONTRIBUTING.md)。あなたの PR の時間を無駄にしないための宣言である。
-
-## 体制
-
-- 設計・レビュー: Claude(Fable 5)
-- 実装: Claude(Sonnet 5)へ issue 単位で委託
-- 公開・デプロイ・命名の最終決定: 人間([@yktsnd](https://github.com/yktsnd))
-
-## ステータス
-
-- 2026-07: MVP + DX レビュー対応完了、独立リポジトリ化。
-- 2026-07: v0.2 "distribution-ready" 完了(英語一次ドキュメント・ガバナンス文書・npm パッケージ化・`sekimori init`・CI)。
-- 2026-07: v0.3 "agent-ready" 完了(AGENTS.md・完全非対話 `init`・`doctor`)、v0.4 "owner-ready" 完了(オーナーガイド日英・Amazon Bedrock 上流)。次は v0.5 "public release"(credential ゲート。[ROADMAP.md](ROADMAP.md) 参照)。
+公開、デプロイ、命名、予算、認証情報の決定は人間の maintainer / owner が行う。
+設計と実装は、人間か AI 支援ワークフローかにかかわらず、根拠に基づいてレビュー
+する。

@@ -1,0 +1,53 @@
+name: Feature request
+description: Propose a focused improvement to sekimori's supported scope
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please read the roadmap and contributing guide first. sekimori stays
+        deliberately small; proposals that weaken fail-closed behavior or turn
+        it into a general-purpose gateway are unlikely to fit.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Who is blocked, at what moment, and what outcome do they need?
+      placeholder: As a ..., when ..., I need ... so that ...
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the smallest observable change that would solve the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Could this live in the client, deployment proxy, or another gateway?
+    validations:
+      required: true
+  - type: dropdown
+    id: runtime_dependency
+    attributes:
+      label: Would this add a runtime dependency?
+      options:
+        - "No"
+        - "Not sure"
+        - "Yes"
+    validations:
+      required: true
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: I checked the roadmap and contributing guide for current non-goals.
+          required: true
+        - label: This proposal preserves fail-closed behavior.
+          required: true

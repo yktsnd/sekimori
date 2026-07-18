@@ -18,6 +18,7 @@
     gap: 0.5rem; flex-wrap: wrap;
   }
   .usage-bar .change-token { font-size: 0.8rem; color: #2563eb; cursor: pointer; text-decoration: underline; border: none; background: none; padding: 0; }
+  .usage-bar .new-conversation { font-size: 0.8rem; color: #2563eb; cursor: pointer; text-decoration: underline; border: none; background: none; padding: 0; }
   #tokenGate { margin-top: 1rem; }
   #tokenGate label { display: block; margin-bottom: 0.4rem; font-size: 0.9rem; }
   #tokenGate input { width: 100%; box-sizing: border-box; padding: 0.5rem; font-size: 0.95rem; border: 1px solid #ccc; border-radius: 6px; }
@@ -36,6 +37,8 @@
   .composer button { padding: 0.5rem 1.25rem; font-size: 0.95rem; border: none; border-radius: 6px; background: #2563eb; color: white; cursor: pointer; align-self: flex-end; }
   .composer button:disabled { background: #93a5c9; cursor: default; }
   details.raw { margin-top: 0.4rem; font-size: 0.75rem; color: #888; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+  button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px solid #1d4ed8; outline-offset: 2px; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -67,28 +70,35 @@ const CONFIG = {
 
   <h1 id="appTitle"></h1>
   <p class="hint">
-    A zero-dependency demo page that just POSTs /v1/messages (stream: true) through
-    sekimori using an invite token. Because of CORS, don't open it via file:// -
-    serve it from a simple HTTP server instead (e.g. run
-    <code>python3 -m http.server 8000</code> in this directory and add the serving
-    origin to sekimori's <code>cors.allowedOrigins</code>).
+    A zero-dependency demo page that POSTs /v1/messages through sekimori using
+    an invite token. Because of CORS, don't open it via file:// - serve it from
+    a simple HTTP server instead (for example, run <code>python3 -m http.server
+    8000</code>, or <code>py -m http.server 8000</code> on Windows, in this
+    directory and add the serving origin to sekimori's
+    <code>cors.allowedOrigins</code>). Set <code>CONFIG.stream</code> to
+    <code>false</code> for a Bedrock upstream. For a non-local deployment,
+    serve both this page and the gateway over HTTPS to avoid mixed-content
+    blocking.
   </p>
 
   <div id="tokenGate">
     <label for="tokenInput">Enter your invite token (smk_...)</label>
     <input id="tokenInput" placeholder="smk_..." autocomplete="off" />
     <button id="saveToken">Save and start</button>
+    <p class="hint">This token is saved only in this browser. On a shared device, use “Change token” when you finish.</p>
   </div>
 
   <div id="chatArea" hidden>
     <div class="usage-bar">
-      <span id="usageText">Today's usage: loading...</span>
+      <span id="usageText" role="status" aria-live="polite">Today's usage: loading...</span>
+      <button class="new-conversation" id="newConversation" type="button">New conversation</button>
       <button class="change-token" id="changeToken" type="button">Change token</button>
     </div>
 
-    <div id="history"></div>
+    <div id="history" role="log" aria-live="polite" aria-relevant="additions text" aria-label="Conversation"></div>
 
     <div class="composer">
+      <label class="sr-only" for="input">Message</label>
       <textarea id="input" placeholder="Type a message (Shift+Enter for a new line, Enter to send)"></textarea>
       <button id="send">Send</button>
     </div>
@@ -110,6 +120,7 @@ const CONFIG = {
   const tokenInput = $("tokenInput");
   const saveTokenBtn = $("saveToken");
   const changeTokenBtn = $("changeToken");
+  const newConversationBtn = $("newConversation");
   const usageText = $("usageText");
   const historyEl = $("history");
   const composerInput = $("input");
@@ -119,6 +130,9 @@ const CONFIG = {
 
   /** In-page conversation history. Lost on reload, by design. */
   let messages = [];
+  // Changes whenever a token is cleared or replaced. In-flight requests from
+  // an older token must never append their conversation to the next one.
+  let conversationVersion = 0;
 
   function getToken() {
     return localStorage.getItem(TOKEN_STORAGE_KEY);
@@ -132,7 +146,19 @@ const CONFIG = {
     localStorage.removeItem(TOKEN_STORAGE_KEY);
   }
 
+  function resetConversation() {
+    conversationVersion += 1;
+    messages = [];
+    historyEl.replaceChildren();
+    composerInput.value = "";
+    sendBtn.disabled = false;
+    rawText.textContent = "";
+    rawDetails.hidden = true;
+    usageText.textContent = "Today's usage: loading...";
+  }
+
   function showTokenGate() {
+    resetConversation();
     tokenGate.hidden = false;
     chatArea.hidden = true;
     tokenInput.value = "";
@@ -143,6 +169,7 @@ const CONFIG = {
     tokenGate.hidden = true;
     chatArea.hidden = false;
     refreshUsage();
+    composerInput.focus();
   }
 
   function renderHistory() {
@@ -176,10 +203,12 @@ const CONFIG = {
   async function refreshUsage() {
     const token = getToken();
     if (!token) return;
+    const isCurrentToken = () => getToken() === token;
     try {
       const res = await fetch(`${CONFIG.baseUrl}/v1/usage`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (!isCurrentToken()) return;
       if (res.status === 401) {
         usageText.textContent = "Your invite token is invalid";
         return;
@@ -189,8 +218,10 @@ const CONFIG = {
         return;
       }
       const usage = await res.json();
+      if (!isCurrentToken()) return;
       usageText.textContent = `Today's usage: ${fmtUsd(usage.todayUsd)} / ${fmtUsd(usage.dailyLimitUsd)}`;
     } catch {
+      if (!isCurrentToken()) return;
       usageText.textContent = "Could not load usage (network error)";
     }
   }
@@ -213,6 +244,16 @@ const CONFIG = {
         }
         return "You're sending messages too fast. Please wait a moment and try again.";
       }
+      case "permission_error":
+        return "This app is not allowed to use the selected model. Please contact the operator.";
+      case "invalid_request_error":
+        return "This message is too large or uses a feature this gateway cannot safely price. Start a new conversation and try a shorter text-only message.";
+      case "storage_unavailable_error":
+        return "The service's safe storage is unavailable. Do not keep retrying; please contact the operator.";
+      case "upstream_error":
+        return "The AI provider did not respond. Please try again later.";
+      case "not_found_error":
+        return "The requested service resource no longer exists. Please contact the operator.";
       default:
         return "Cannot connect. Please contact the operator.";
     }
@@ -225,7 +266,7 @@ const CONFIG = {
     return Number.isFinite(n) ? n : null;
   }
 
-  async function handleErrorResponse(res) {
+  async function handleErrorResponse(res, requestToken, requestVersion) {
     const retryAfterSeconds = parseRetryAfter(res);
     let errorType = null;
     let bodyText = "";
@@ -236,6 +277,8 @@ const CONFIG = {
     } catch {
       // Body isn't JSON: treat it as a connection problem
     }
+
+    if (requestVersion !== conversationVersion || requestToken !== getToken()) return;
 
     appendSystemError(
       friendlyErrorMessage(errorType, retryAfterSeconds),
@@ -252,7 +295,8 @@ const CONFIG = {
    * to in-page conversation history. Shared by both the streaming render
    * loop (called once at the end, already-built text) and the non-streaming
    * path (called once with the joined response text). */
-  function commitAssistantReply(text) {
+  function commitAssistantReply(text, requestVersion) {
+    if (requestVersion !== conversationVersion) return;
     const assistantDiv = document.createElement("div");
     assistantDiv.className = "msg assistant";
     assistantDiv.textContent = text;
@@ -266,7 +310,7 @@ const CONFIG = {
    * "stream": true, waits for the full JSON response, and renders it in one
    * shot by joining content[].text - text-only, matching what the streaming
    * path renders (no tool_use / other block types). */
-  async function sendNonStreaming(res) {
+  async function sendNonStreaming(res, requestVersion) {
     try {
       const body = await res.json();
       const text = Array.isArray(body.content)
@@ -275,8 +319,9 @@ const CONFIG = {
             .map((block) => block.text ?? "")
             .join("")
         : "";
-      commitAssistantReply(text);
+      commitAssistantReply(text, requestVersion);
     } catch (err) {
+      if (requestVersion !== conversationVersion) return;
       appendSystemError(friendlyErrorMessage(null, null), String(err instanceof Error ? err.message : err));
     }
   }
@@ -285,8 +330,9 @@ const CONFIG = {
    * an Anthropic-direct upstream). Renders content_block_delta text_delta
    * events incrementally, then commits the assembled text once the stream
    * ends. */
-  async function sendStreaming(res) {
+  async function sendStreaming(res, requestVersion) {
     if (!res.body) {
+      if (requestVersion !== conversationVersion) return;
       appendSystemError(friendlyErrorMessage(null, null), "response had no body to stream");
       return;
     }
@@ -305,6 +351,10 @@ const CONFIG = {
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
+        if (requestVersion !== conversationVersion) {
+          await reader.cancel();
+          return;
+        }
         buffer += decoder.decode(value, { stream: true });
 
         let newlineIndex;
@@ -326,8 +376,11 @@ const CONFIG = {
           }
         }
       }
-      messages.push({ role: "assistant", content: assistantText });
+      if (requestVersion === conversationVersion) {
+        messages.push({ role: "assistant", content: assistantText });
+      }
     } catch (err) {
+      if (requestVersion !== conversationVersion) return;
       appendSystemError(friendlyErrorMessage(null, null), String(err instanceof Error ? err.message : err));
     }
   }
@@ -340,6 +393,7 @@ const CONFIG = {
     }
     const text = composerInput.value.trim();
     if (!text) return;
+    const requestVersion = conversationVersion;
 
     messages.push({ role: "user", content: text });
     renderHistory();
@@ -362,33 +416,39 @@ const CONFIG = {
         }),
       });
     } catch (err) {
+      if (requestVersion !== conversationVersion) return;
       appendSystemError(friendlyErrorMessage(null, null), String(err instanceof Error ? err.message : err));
       sendBtn.disabled = false;
       return;
     }
 
     if (!res.ok) {
-      await handleErrorResponse(res);
-      sendBtn.disabled = false;
-      await refreshUsage();
+      await handleErrorResponse(res, token, requestVersion);
+      if (requestVersion === conversationVersion) {
+        sendBtn.disabled = false;
+        await refreshUsage();
+      }
       return;
     }
 
     try {
       if (CONFIG.stream) {
-        await sendStreaming(res);
+        await sendStreaming(res, requestVersion);
       } else {
-        await sendNonStreaming(res);
+        await sendNonStreaming(res, requestVersion);
       }
     } finally {
-      sendBtn.disabled = false;
-      await refreshUsage();
+      if (requestVersion === conversationVersion) {
+        sendBtn.disabled = false;
+        await refreshUsage();
+      }
     }
   }
 
   saveTokenBtn.addEventListener("click", () => {
     const token = tokenInput.value.trim();
     if (!token) return;
+    resetConversation();
     saveToken(token);
     showChatArea();
   });
@@ -400,6 +460,10 @@ const CONFIG = {
   changeTokenBtn.addEventListener("click", () => {
     clearToken();
     showTokenGate();
+  });
+  newConversationBtn.addEventListener("click", () => {
+    resetConversation();
+    composerInput.focus();
   });
 
   sendBtn.addEventListener("click", sendMessage);

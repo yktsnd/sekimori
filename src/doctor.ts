@@ -14,9 +14,21 @@
 // in placeholder env vars if they are missing, so this check does not itself
 // require secrets to be set - that is upstream_key_env / admin_key_env's job.
 
-import { readFileSync, existsSync, accessSync, mkdirSync, writeFileSync, unlinkSync, constants as fsConstants } from "node:fs";
-import { dirname } from "node:path";
+import {
+  readFileSync,
+  existsSync,
+  accessSync,
+  mkdirSync,
+  mkdtempSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+  constants as fsConstants,
+} from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { validateConfig, type SekimoriConfig } from "./config.js";
+import { validateStoreFileText } from "./store.js";
 
 export type DoctorStatus = "ok" | "warn" | "fail";
 
@@ -55,66 +67,76 @@ function isErrnoException(err: unknown): err is NodeJS.ErrnoException {
 
 /**
  * Runs the real validateConfig against `parsed`, but first fills in
- * placeholder values for whichever of the upstream API key env var (if it
+ * placeholder values for the upstream API key env var (if it
  * can be determined from `parsed.upstream.apiKeyEnv`) and
- * SEKIMORI_ADMIN_KEY are not already set in process.env, so this check does
- * not itself require secrets to be present. process.env is restored exactly
- * as it was afterwards, including deleting placeholders that were not
- * present before. Mirrors init.ts's validateGeneratedConfig.
+ * and SEKIMORI_ADMIN_KEY, so this structural check neither depends on nor
+ * validates the real secrets. The dedicated env checks below do that without
+ * exposing values. process.env is restored exactly afterwards.
  */
-function validateConfigWithPlaceholderEnv(parsed: unknown): SekimoriConfig {
+function validateConfigWithPlaceholderEnv(parsed: unknown, configPath: string): SekimoriConfig {
   const apiKeyEnv =
     isRecord(parsed) && isRecord(parsed.upstream) && typeof parsed.upstream.apiKeyEnv === "string"
       ? parsed.upstream.apiKeyEnv
       : undefined;
 
   const restoreFns: Array<() => void> = [];
-  const setPlaceholderIfMissing = (name: string): void => {
-    if (process.env[name]) return;
-    process.env[name] = "sekimori-doctor-placeholder";
-    restoreFns.push(() => delete process.env[name]);
+  const setPlaceholder = (name: string, value: string): void => {
+    const existed = Object.hasOwn(process.env, name);
+    const previous = process.env[name];
+    process.env[name] = value;
+    restoreFns.push(() => {
+      if (existed) process.env[name] = previous;
+      else delete process.env[name];
+    });
   };
 
-  if (apiKeyEnv !== undefined) setPlaceholderIfMissing(apiKeyEnv);
-  setPlaceholderIfMissing("SEKIMORI_ADMIN_KEY");
+  if (apiKeyEnv !== undefined) setPlaceholder(apiKeyEnv, "sekimori-doctor-upstream-placeholder-value");
+  setPlaceholder("SEKIMORI_ADMIN_KEY", "sekimori-doctor-admin-placeholder-value");
 
   try {
-    return validateConfig(parsed);
+    return validateConfig(parsed, { configDirectory: dirname(resolve(configPath)) });
   } finally {
-    for (const restore of restoreFns) restore();
+    for (const restore of restoreFns.reverse()) restore();
   }
 }
 
 function checkUpstreamKeyEnv(config: SekimoriConfig): DoctorCheck {
   const envVar = config.upstream.apiKeyEnv;
   const value = process.env[envVar];
-  if (value !== undefined && value.length > 0) {
+  if (value !== undefined && /^[\x21-\x7e]+$/.test(value)) {
     return { name: "upstream_key_env", status: "ok", detail: `${envVar} is set` };
   }
   return {
     name: "upstream_key_env",
     status: "fail",
-    detail: `environment variable "${envVar}" (named by upstream.apiKeyEnv) is not set`,
+    detail: `environment variable "${envVar}" (named by upstream.apiKeyEnv) must be set to visible ASCII characters`,
   };
 }
 
 function checkAdminKeyEnv(): DoctorCheck {
   const value = process.env.SEKIMORI_ADMIN_KEY;
-  if (value !== undefined && value.length > 0) {
+  if (value !== undefined && value.length >= 32 && /^[\x21-\x7e]+$/.test(value)) {
     return { name: "admin_key_env", status: "ok", detail: "SEKIMORI_ADMIN_KEY is set" };
   }
-  return { name: "admin_key_env", status: "fail", detail: "environment variable SEKIMORI_ADMIN_KEY is not set" };
+  return {
+    name: "admin_key_env",
+    status: "fail",
+    detail: "environment variable SEKIMORI_ADMIN_KEY must be set to at least 32 visible ASCII characters",
+  };
 }
 
 /**
  * Probes whether the configured store location is writable, WITHOUT ever
  * writing to or truncating the real state file:
- *   - If the state file already exists, only check access (fs.accessSync,
- *     W_OK) - no open, no write.
- *   - If it does not exist yet, make sure its directory exists (creating it
- *     if needed - the same thing FileStore's first real persist() would do),
- *     then write and immediately delete a throwaway probe file next to the
- *     configured path (`<path>.doctor-probe-<pid>`).
+ *   - If the state file already exists, verify it is a regular file and that
+ *     both it and its parent directory are writable. FileStore replaces the
+ *     snapshot through a same-directory temp file, so checking the file alone
+ *     is not sufficient.
+ *   - Make sure its directory exists (creating it if needed - the same thing
+ *     FileStore's first real persist() would do), then create a randomly named
+ *     private probe directory next to the configured path. The probe file is
+ *     created exclusively inside it, so a predictable path or a pre-existing
+ *     symlink can never be overwritten.
  */
 function checkStoreWritable(config: SekimoriConfig): DoctorCheck {
   if (config.store.type === "memory") {
@@ -127,17 +149,32 @@ function checkStoreWritable(config: SekimoriConfig): DoctorCheck {
 
   const path = config.store.path;
   try {
-    if (existsSync(path)) {
-      accessSync(path, fsConstants.W_OK);
-      return { name: "store_writable", status: "ok", detail: `store file is writable: ${path}` };
+    const stateExists = existsSync(path);
+    if (stateExists && !statSync(path).isFile()) {
+      throw new Error("store path exists but is not a regular file");
     }
+    if (stateExists) validateStoreFileText(readFileSync(path, "utf8"));
 
     const dir = dirname(path);
     mkdirSync(dir, { recursive: true });
-    const probePath = `${path}.doctor-probe-${process.pid}`;
-    writeFileSync(probePath, "");
-    unlinkSync(probePath);
-    return { name: "store_writable", status: "ok", detail: `store directory is writable: ${dir}` };
+    accessSync(dir, fsConstants.W_OK | fsConstants.X_OK);
+    if (stateExists) accessSync(path, fsConstants.W_OK);
+
+    const probeDir = mkdtempSync(join(dir, ".sekimori-doctor-"));
+    const renamedProbe = join(dir, `${basename(probeDir)}.renamed`);
+    try {
+      const writeProbe = join(probeDir, "write-probe");
+      writeFileSync(writeProbe, "", { flag: "wx" });
+      renameSync(writeProbe, renamedProbe);
+    } finally {
+      rmSync(renamedProbe, { force: true });
+      rmSync(probeDir, { recursive: true, force: true });
+    }
+    return {
+      name: "store_writable",
+      status: "ok",
+      detail: stateExists ? `store file is valid and writable: ${path}` : `store directory is writable: ${dir}`,
+    };
   } catch (err) {
     return { name: "store_writable", status: "fail", detail: `store path is not writable: ${path} (${(err as Error).message})` };
   }
@@ -179,7 +216,7 @@ function computeChecks(configPath: string): ComputedChecks {
   } else {
     try {
       const parsed = JSON.parse(raw);
-      config = validateConfigWithPlaceholderEnv(parsed);
+      config = validateConfigWithPlaceholderEnv(parsed, configPath);
       checks.push({ name: "config_valid", status: "ok", detail: "parses as JSON and passes validateConfig" });
     } catch (err) {
       checks.push({ name: "config_valid", status: "fail", detail: (err as Error).message });

@@ -9,7 +9,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -345,6 +345,48 @@ test("init: refuses to overwrite an existing file without --force", async (t) =>
   assert.equal(readFileSync(cfgPath, "utf8"), '{"marker":"pre-existing"}');
 });
 
+test("init: refuses a file created while interactive answers are being collected", async (t) => {
+  const dir = tmpDir("sekimori-init-late-file-");
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const cfgPath = join(dir, "sekimori.config.json");
+  const input = new PassThrough();
+  const captured = capturingOutput();
+
+  const resultPromise = runInit([cfgPath], { input, output: captured.stream, isTTY: true });
+  assert.match(captured.text(), /interactive config generator/);
+
+  const marker = '{"marker":"created-after-init-started"}';
+  writeFileSync(cfgPath, marker);
+
+  const answers = [
+    "9999",
+    "",
+    "",
+    "",
+    "2.0",
+    "",
+    "",
+    "50",
+    "",
+    "20",
+    "memory",
+    "https://example.com,https://foo.example",
+    "You are a pirate.",
+  ];
+  const feeder = (async () => {
+    for (const line of answers) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      input.write(`${line}\n`);
+    }
+  })();
+
+  const exitCode = await resultPromise;
+  await feeder;
+  assert.notEqual(exitCode, 0);
+  assert.match(captured.text(), /refus.*overwrite/i);
+  assert.equal(readFileSync(cfgPath, "utf8"), marker);
+});
+
 test("init: --force overwrites an existing file", async (t) => {
   const dir = tmpDir("sekimori-init-force-");
   t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -356,6 +398,31 @@ test("init: --force overwrites an existing file", async (t) => {
   const parsed = JSON.parse(readFileSync(cfgPath, "utf8"));
   assert.equal(parsed.port, 8787);
 });
+
+test(
+  "init: --force replaces a config symlink without writing through to its target",
+  { skip: process.platform === "win32" },
+  async (t) => {
+    const dir = tmpDir("sekimori-init-force-symlink-");
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    const victimPath = join(dir, "unrelated.json");
+    const cfgPath = join(dir, "sekimori.config.json");
+    const marker = '{"marker":"must remain unchanged"}';
+    writeFileSync(victimPath, marker);
+    symlinkSync(victimPath, cfgPath);
+
+    const exitCode = await runInit([cfgPath, "--yes", "--force"], silentIO());
+
+    assert.equal(exitCode, 0);
+    assert.equal(readFileSync(victimPath, "utf8"), marker);
+    assert.equal(lstatSync(cfgPath).isSymbolicLink(), false);
+    assert.equal(JSON.parse(readFileSync(cfgPath, "utf8")).port, 8787);
+    assert.deepEqual(
+      readdirSync(dir).filter((name) => name.startsWith("sekimori.config.json.tmp-")),
+      [],
+    );
+  },
+);
 
 test("init: non-TTY without --yes exits non-zero with a hint, without hanging", async (t) => {
   const dir = tmpDir("sekimori-init-notty-");

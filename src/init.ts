@@ -10,7 +10,8 @@
 // (no third-party CLI/prompt library).
 
 import { createInterface } from "node:readline/promises";
-import { existsSync, writeFileSync } from "node:fs";
+import { renameSync, rmSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import {
   normalizeUpstreamBaseUrl,
   validateConfig,
@@ -821,6 +822,28 @@ function printNextSteps(output: NodeJS.WritableStream, path: string, apiKeyEnv: 
   );
 }
 
+/**
+ * Replace a generated config without ever opening the destination for writing.
+ * A same-directory exclusive temporary file makes `--force` replace a symlink
+ * or hard link itself instead of following it to an unrelated file. Rename is
+ * atomic on the filesystems Node supports; a failed rename leaves the previous
+ * destination intact and the temporary file is removed best-effort.
+ */
+function replaceFileAtomically(path: string, contents: string): void {
+  const temporaryPath = `${path}.tmp-${randomUUID()}`;
+  try {
+    writeFileSync(temporaryPath, contents, { flag: "wx", mode: 0o600 });
+    renameSync(temporaryPath, path);
+  } catch (err) {
+    try {
+      rmSync(temporaryPath, { force: true });
+    } catch {
+      // Preserve the original write/rename failure for the operator.
+    }
+    throw err;
+  }
+}
+
 /** Entry point called from main.ts's `run(argv)` dispatcher. Returns a
  * process exit code; never calls process.exit itself (keeps it testable). */
 export async function runInit(args: string[], io: InitIO): Promise<number> {
@@ -835,14 +858,6 @@ export async function runInit(args: string[], io: InitIO): Promise<number> {
     return 1;
   }
   const { path, force, yes, overrides } = parsed;
-
-  if (existsSync(path) && !force) {
-    io.output.write(
-      `[sekimori init] refusing to overwrite existing file: ${path}\n` +
-        "  Re-run with --force to overwrite, or pass a different path.\n",
-    );
-    return 1;
-  }
 
   // Non-TTY without --yes is refused unconditionally, even when flags are
   // present: interactive prompting would still be needed for any unflagged
@@ -872,8 +887,23 @@ export async function runInit(args: string[], io: InitIO): Promise<number> {
   }
 
   try {
-    writeFileSync(path, `${JSON.stringify(configObject, null, 2)}\n`, { flag: force ? "w" : "wx" });
+    const contents = `${JSON.stringify(configObject, null, 2)}\n`;
+    if (force) {
+      replaceFileAtomically(path, contents);
+    } else {
+      // A single exclusive create is both the check and the write. Keeping
+      // those operations indivisible prevents a late-created file from being
+      // overwritten between a separate existence check and this boundary.
+      writeFileSync(path, contents, { flag: "wx", mode: 0o600 });
+    }
   } catch (err) {
+    if (!force && (err as NodeJS.ErrnoException).code === "EEXIST") {
+      io.output.write(
+        `[sekimori init] refusing to overwrite existing file: ${path}\n` +
+          "  Re-run with --force to overwrite, or pass a different path.\n",
+      );
+      return 1;
+    }
     io.output.write(`[sekimori init] could not write ${path}: ${(err as Error).message}\n`);
     return 1;
   }

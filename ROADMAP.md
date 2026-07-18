@@ -43,7 +43,8 @@ package, and must be re-verified on the exact release commit.
 ### Maintainer or account authority required
 
 - [ ] Review and merge [release-candidate PR #18](https://github.com/yktsnd/sekimori/pull/18)
-      into the intended default branch; all five required CI jobs are green.
+      into the intended default branch; all five CI jobs and the required
+      CodeQL security gate are green.
 - [x] Record the maintainer's 2026-07-18 J-PlatPat search for `sekimori` (no
       registered mark found) as a naming-risk decision, not legal clearance.
 - [ ] Reconfirm npm name availability immediately before publish.
@@ -62,9 +63,9 @@ package, and must be re-verified on the exact release commit.
       CodeQL Extended, immutable GitHub Releases, read-only default Actions
       permissions, and full-SHA action pinning.
 - [x] Configure an active default-branch ruleset after the history rewrite:
-      require PRs and the five Linux/macOS/Windows CI checks; prevent deletion,
-      force pushes, and direct unreviewed releases without requiring a second
-      maintainer's approval.
+      require PRs, the five Linux/macOS/Windows CI checks, and the CodeQL
+      security gate; prevent deletion, force pushes, and direct unreviewed
+      releases without requiring a second maintainer's approval.
 - [x] Add accurate GitHub About text and repository topics.
 - [x] Prepare a 1280 x 640, sub-1 MB social-preview asset in `.github/`.
 - [ ] Upload the social preview and verify the community profile from a

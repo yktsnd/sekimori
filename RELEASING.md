@@ -7,9 +7,10 @@ It prevents a package upload from being mistaken for a trustworthy launch.
 ## Before a first public release
 
 - [ ] Review and merge [release-candidate PR #18](https://github.com/yktsnd/sekimori/pull/18)
-  into the default branch. Its five required CI jobs passed on 2026-07-18. The
-  public default branch must contain the current README, security policy,
-  CI, docs, and tests; do not make an older branch public by accident.
+  into the default branch. Its five CI jobs and required CodeQL security gate
+  passed on 2026-07-18. The public default branch must contain the current
+  README, security policy, CI, docs, and tests; do not make an older branch
+  public by accident.
 - [x] The maintainer deliberately made the repository public on 2026-07-18.
   A file-path and credential-pattern scan across every Git revision found no
   committed config, state, token, private key, or provider credential. This
@@ -50,9 +51,10 @@ It prevents a package upload from being mistaken for a trustworthy launch.
   participation to strangers.
 - [x] Protect the default branch. Active ruleset `Protect main` requires a
   pull request, resolved review conversations, and passing Linux Node.js
-  20/22/24, macOS, and Windows CI checks; it prevents branch deletion,
-  force pushes, and direct unreviewed releases. Approval count remains zero
-  so a single maintainer is not locked out; verified on 2026-07-18.
+  20/22/24, macOS, Windows, and CodeQL security checks; it prevents branch
+  deletion, force pushes, and direct unreviewed releases. Approval count
+  remains zero so a single maintainer is not locked out; verified on
+  2026-07-18.
 - [x] Confirm GitHub Actions, Dependabot security updates, secret scanning, and
   push protection are enabled. Actions default to read-only permissions and
   third-party actions must use full commit SHAs; verified on 2026-07-18.

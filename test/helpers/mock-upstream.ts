@@ -1,9 +1,10 @@
-// mock-upstream.ts — テスト用の擬似 Anthropic Messages API サーバー（node:http）。
-// 実 API キー不要でテストをオフライン実行するためのモック。
+// mock-upstream.ts - fake Anthropic Messages API server for tests (node:http).
+// Lets the test suite run offline without a real API key.
 //
-// ../../examples/mock-upstream.mjs とは別実装（意図的）。あちらは人間が手元で直接叩く
-// 依存ゼロのスタンドアロンスクリプトで、こちらは node:test から import して各テストが
-// 個別ポートで起動するテストハーネス。用途が違うため統合していない。
+// Deliberately a separate implementation from ../../examples/mock-upstream.mjs:
+// that one is a zero-dependency standalone script humans run by hand, while
+// this one is a test harness imported from node:test where each test starts
+// its own instance on its own port. Different purposes, so not unified.
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -40,7 +41,7 @@ function readBody(req: IncomingMessage): Promise<string> {
   });
 }
 
-/** 非ストリームの正常応答（usage 込み）を返すモック。 */
+/** Mock returning a successful non-streaming response (with usage). */
 export function jsonMessagesHandler(opts: { inputTokens: number; outputTokens: number; text?: string }): MockHandler {
   return (req, res) => {
     void readBody(req).then(() => {
@@ -60,7 +61,7 @@ export function jsonMessagesHandler(opts: { inputTokens: number; outputTokens: n
   };
 }
 
-/** usage フィールドを欠落させた（壊れた）非ストリーム応答を返すモック。 */
+/** Mock returning a (broken) non-streaming response with the usage field missing. */
 export function jsonMessagesHandlerWithoutUsage(opts: { text?: string } = {}): MockHandler {
   return (req, res) => {
     void readBody(req).then(() => {
@@ -73,14 +74,14 @@ export function jsonMessagesHandlerWithoutUsage(opts: { text?: string } = {}): M
           content: [{ type: "text", text: opts.text ?? "hello" }],
           model: "test-model",
           stop_reason: "end_turn",
-          // usage フィールドなし
+          // no usage field
         }),
       );
     });
   };
 }
 
-/** リクエストボディを capture に格納しつつ、通常の JSON 応答を返すモック。 */
+/** Mock that stores the request body into `capture` while returning a normal JSON response. */
 export function capturingJsonMessagesHandler(
   capture: { body?: unknown },
   opts: { inputTokens: number; outputTokens: number },
@@ -142,14 +143,14 @@ function buildSseEvents(opts: { inputTokens: number; outputTokens: number }): Ss
   ];
 }
 
-/** SSE の完全なテキスト（テストの期待値比較用）。 */
+/** The full SSE body text (for expected-value comparison in tests). */
 export function buildSseBody(opts: { inputTokens: number; outputTokens: number }): string {
   return buildSseEvents(opts)
     .map((e) => `event: ${e.event}\ndata: ${JSON.stringify(e.data)}\n\n`)
     .join("");
 }
 
-/** ストリーム応答（SSE）を返すモック。 */
+/** Mock returning a streaming (SSE) response. */
 export function sseMessagesHandler(opts: { inputTokens: number; outputTokens: number }): MockHandler {
   return (req, res) => {
     void readBody(req).then(() => {
@@ -159,6 +160,56 @@ export function sseMessagesHandler(opts: { inputTokens: number; outputTokens: nu
         connection: "keep-alive",
       });
       res.end(buildSseBody(opts));
+    });
+  };
+}
+
+/** One captured request against the mock Bedrock upstream. */
+export interface BedrockCapture {
+  method: string;
+  path: string;
+  headers: Record<string, string | string[] | undefined>;
+  body: unknown;
+}
+
+/**
+ * Mock Amazon Bedrock InvokeModel endpoint: `POST /model/:id/invoke`.
+ * Captures method/path/headers/parsed-body of every request into
+ * `captures` (push to the same array across requests to assert nothing
+ * reached it, e.g. for the streaming-rejection test), and returns an
+ * Anthropic-shaped JSON response with usage - Bedrock returns Anthropic's
+ * own response shape for Claude models.
+ */
+export function bedrockInvokeModelHandler(
+  captures: BedrockCapture[],
+  opts: { inputTokens: number; outputTokens: number; text?: string } = { inputTokens: 10, outputTokens: 10 },
+): MockHandler {
+  return (req, res) => {
+    void readBody(req).then((raw) => {
+      let body: unknown;
+      try {
+        body = raw ? JSON.parse(raw) : undefined;
+      } catch {
+        body = raw;
+      }
+      captures.push({
+        method: req.method ?? "",
+        path: req.url ?? "",
+        headers: { ...req.headers },
+        body,
+      });
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          id: "msg_bedrock_test",
+          type: "message",
+          role: "assistant",
+          content: [{ type: "text", text: opts.text ?? "hello from bedrock" }],
+          model: "test-model",
+          stop_reason: "end_turn",
+          usage: { input_tokens: opts.inputTokens, output_tokens: opts.outputTokens },
+        }),
+      );
     });
   };
 }

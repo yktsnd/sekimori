@@ -1,25 +1,43 @@
 #!/usr/bin/env node
-// mock-upstream.mjs — オフラインデモ用の擬似 Anthropic Messages API サーバー(依存ゼロ)。
+// mock-upstream.mjs - fake Anthropic Messages API server for offline demos (zero dependencies).
 //
-// 実際の Anthropic API キーがなくても sekimori のクイックスタートを試せるようにするための
-// 最小限のスタブ。`POST /v1/messages` のみをサポートし、リクエストの `stream` フィールドに
-// 応じて非ストリーム JSON か SSE を返す。
+// A minimal stub so the sekimori quickstart can be tried without a real
+// Anthropic API key. Supports only `POST /v1/messages`, returning either
+// non-streaming JSON or SSE depending on the request's `stream` field.
 //
-// 使い方: node examples/mock-upstream.mjs [port=9999]
+// Usage: node examples/mock-upstream.mjs [port=9999]
 //
-// ../test/helpers/mock-upstream.ts とは別実装(意図的)。あちらは node:test から import して
-// 使う TypeScript のテストハーネスで、こちらはビルド不要で手元から直接叩ける依存ゼロの
-// スタンドアロン .mjs スクリプト。用途が違うため統合していない。
+// Deliberately a separate implementation from ../test/helpers/mock-upstream.ts:
+// that one is a TypeScript test harness imported from node:test, while this is
+// a zero-dependency standalone .mjs script you can run directly with no build
+// step. Different purposes, so not unified.
 
 import { createServer } from "node:http";
 
 const port = Number(process.argv[2] ?? process.env.PORT ?? 9999);
+const MAX_REQUEST_BYTES = 64 * 1024;
+
+class BodyTooLargeError extends Error {}
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let raw = "";
-    req.on("data", (chunk) => (raw += chunk.toString("utf8")));
-    req.on("end", () => resolve(raw));
+    let size = 0;
+    let settled = false;
+    req.on("data", (chunk) => {
+      if (settled) return;
+      size += chunk.length;
+      if (size > MAX_REQUEST_BYTES) {
+        settled = true;
+        raw = "";
+        reject(new BodyTooLargeError("mock request body exceeds 64 KiB"));
+        return;
+      }
+      raw += chunk.toString("utf8");
+    });
+    req.on("end", () => {
+      if (!settled) resolve(raw);
+    });
     req.on("error", reject);
   });
 }
@@ -35,7 +53,22 @@ const server = createServer(async (req, res) => {
     return;
   }
 
-  const raw = await readBody(req);
+  let raw;
+  try {
+    raw = await readBody(req);
+  } catch (error) {
+    const tooLarge = error instanceof BodyTooLargeError;
+    res.writeHead(tooLarge ? 413 : 400, { "content-type": "application/json" });
+    res.end(
+      JSON.stringify({
+        error: {
+          type: tooLarge ? "request_too_large_error" : "invalid_request_error",
+          message: tooLarge ? "mock request body exceeds 64 KiB" : "could not read request body",
+        },
+      }),
+    );
+    return;
+  }
   let payload;
   try {
     payload = JSON.parse(raw);
@@ -82,7 +115,7 @@ const server = createServer(async (req, res) => {
     });
     send("content_block_start", { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } });
 
-    // 数チャンクに分けて少しずつ配信し、本物のストリーミングらしさを出す。
+    // Deliver in several small chunks to feel like real streaming.
     const words = replyText.split(" ");
     for (const word of words) {
       send("content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: `${word} ` } });
@@ -110,6 +143,6 @@ const server = createServer(async (req, res) => {
   );
 });
 
-server.listen(port, () => {
-  console.log(`[mock-upstream] listening on http://localhost:${port} (Anthropic Messages API stub)`);
+server.listen(port, "127.0.0.1", () => {
+  console.log(`[mock-upstream] listening on http://127.0.0.1:${port} (Anthropic Messages API stub)`);
 });

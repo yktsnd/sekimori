@@ -1,4 +1,4 @@
-// §8-8: 管理 — トークン発行 → 利用 → 失効 → 401 のライフサイクル
+// Design doc 8-8: admin - token issue -> use -> revoke -> 401 lifecycle
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -76,4 +76,67 @@ test("admin: token issue -> use -> revoke -> 401 lifecycle", async (t) => {
     messagesRequest(issued.token, { model: "test-model", max_tokens: 10, messages: [{ role: "user", content: "hi" }] }),
   );
   assert.equal(afterRevokeRes.status, 401);
+});
+
+test("admin: explicit non-finite dailyUsd is rejected instead of creating an unlimited token", async (t) => {
+  const upstream = await startMockUpstream(jsonMessagesHandler({ inputTokens: 1, outputTokens: 1 }));
+  t.after(() => upstream.close());
+  const { app, adminKey } = buildApp(buildTestConfig(upstream.baseUrl));
+
+  const res = await app.fetch(
+    new Request("http://localhost/admin/tokens", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${adminKey}`, "content-type": "application/json" },
+      body: '{"dailyUsd":1e999}',
+    }),
+  );
+
+  assert.equal(res.status, 400);
+  const json = (await res.json()) as { error: { type: string; message: string } };
+  assert.equal(json.error.type, "invalid_request_error");
+
+  const tooLarge = await app.fetch(
+    new Request("http://localhost/admin/tokens", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${adminKey}`, "content-type": "application/json" },
+      body: JSON.stringify({ dailyUsd: 1_000_000_001 }),
+    }),
+  );
+  assert.equal(tooLarge.status, 400);
+});
+
+test("admin: malformed or non-object token bodies do not issue a default token", async (t) => {
+  const upstream = await startMockUpstream(jsonMessagesHandler({ inputTokens: 1, outputTokens: 1 }));
+  t.after(() => upstream.close());
+  const { app, adminKey } = buildApp(buildTestConfig(upstream.baseUrl));
+
+  for (const body of ["{", "[]", '"not an object"']) {
+    const res = await app.fetch(
+      new Request("http://localhost/admin/tokens", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${adminKey}`, "content-type": "application/json" },
+        body,
+      }),
+    );
+    assert.equal(res.status, 400, body);
+    assert.equal(((await res.json()) as { error: { type: string } }).error.type, "invalid_request_error");
+  }
+
+  const listed = await app.fetch(new Request("http://localhost/admin/tokens", { headers: { Authorization: `Bearer ${adminKey}` } }));
+  assert.deepEqual((await listed.json()) as { tokens: unknown[] }, { tokens: [] });
+});
+
+test("admin: an empty body uses defaults with or without a JSON Content-Type", async (t) => {
+  const upstream = await startMockUpstream(jsonMessagesHandler({ inputTokens: 1, outputTokens: 1 }));
+  t.after(() => upstream.close());
+  const { app, adminKey } = buildApp(buildTestConfig(upstream.baseUrl));
+
+  for (const headers of [
+    { Authorization: `Bearer ${adminKey}` },
+    { Authorization: `Bearer ${adminKey}`, "content-type": "application/json" },
+  ]) {
+    const res = await app.fetch(new Request("http://localhost/admin/tokens", { method: "POST", headers }));
+    assert.equal(res.status, 201);
+    assert.match(((await res.json()) as { token: string }).token, /^smk_/);
+  }
 });

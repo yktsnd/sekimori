@@ -1,0 +1,90 @@
+name: Publish npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact stable package version, without a leading v
+        required: true
+        type: string
+      authentication:
+        description: Use bootstrap-token only for the first package creation
+        required: true
+        default: trusted-publisher
+        type: choice
+        options:
+          - trusted-publisher
+          - bootstrap-token
+      confirmation:
+        description: Type "publish sekimori@<version>" exactly
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    # Configure this Environment with a required reviewer before first use.
+    environment: npm-publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing requires npm >=11.5.1. Keep this exact version
+      # explicit so runner-image changes cannot silently alter release tooling.
+      - name: Install the reviewed npm CLI
+        run: npm install --global npm@11.17.0
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Verify release intent and metadata
+        env:
+          SEKIMORI_RELEASE_VERSION: ${{ inputs.version }}
+          SEKIMORI_RELEASE_CONFIRMATION: ${{ inputs.confirmation }}
+        run: npm run release:check
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Verify the exact release candidate
+        run: |
+          npm run typecheck
+          npm test
+          npm run demo
+          npm run test:pack
+
+      - name: Require the one-time bootstrap token
+        if: inputs.authentication == 'bootstrap-token'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: test -n "$NODE_AUTH_TOKEN" || { echo "NPM_TOKEN is missing from the npm-publish Environment" >&2; exit 1; }
+
+      - name: Publish first package with a short-lived token
+        if: inputs.authentication == 'bootstrap-token'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          SEKIMORI_RELEASE_VERSION: ${{ inputs.version }}
+          SEKIMORI_RELEASE_CONFIRMATION: ${{ inputs.confirmation }}
+        run: npm publish
+
+      - name: Stage with npm Trusted Publishing
+        if: inputs.authentication == 'trusted-publisher'
+        env:
+          SEKIMORI_RELEASE_VERSION: ${{ inputs.version }}
+          SEKIMORI_RELEASE_CONFIRMATION: ${{ inputs.confirmation }}
+        run: npm stage publish

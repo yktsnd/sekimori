@@ -1,4 +1,4 @@
-// §8-9: pinnedSystemPrompt が上流へのリクエストで実際に置換されていること
+// Design doc 8-9: pinnedSystemPrompt actually replaces system in the upstream request
 
 import test from "node:test";
 import assert from "node:assert/strict";

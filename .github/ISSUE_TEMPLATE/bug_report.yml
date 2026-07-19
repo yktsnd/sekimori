@@ -1,0 +1,78 @@
+name: Bug report
+description: Report behavior that differs from the documented contract
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve sekimori. Never include an API key, admin
+        key, invite token, private endpoint URL, or personal data. Report
+        vulnerabilities privately through the Security advisory link instead.
+  - type: textarea
+    id: observed
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior and what you expected instead.
+      placeholder: Observed behavior, then expected behavior
+    validations:
+      required: true
+  - type: dropdown
+    id: safety_boundary
+    attributes:
+      label: Did sekimori allow something it should have blocked?
+      description: Examples include auth, budget, rate-limit, or model-allowlist bypasses.
+      options:
+        - "No"
+        - "Not sure"
+        - "Yes — I will use a private security advisory instead"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Prefer the offline mock upstream so no real API key is involved.
+      placeholder: Commands, minimal config, and numbered steps (with every secret redacted)
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: sekimori version or commit
+      placeholder: SemVer from npm, or a full commit SHA
+    validations:
+      required: true
+  - type: input
+    id: node
+    attributes:
+      label: Node.js version
+      placeholder: v20.19.0
+    validations:
+      required: true
+  - type: dropdown
+    id: operating_system
+    attributes:
+      label: Operating system
+      options:
+        - "Linux"
+        - "macOS"
+        - "Windows"
+        - "Other"
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Safe diagnostics
+      description: Include stable doctor check names/statuses or a short redacted log excerpt.
+      placeholder: config_valid=ok; store_writable=ok
+  - type: checkboxes
+    id: safe_to_publish
+    attributes:
+      label: Public-report safety
+      options:
+        - label: I removed all keys, tokens, private URLs, personal data, and request/response bodies.
+          required: true

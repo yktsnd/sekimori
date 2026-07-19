@@ -1,4 +1,4 @@
-// budget.ts の純粋関数の単体テスト（§5: I/O を持たないので単体テスト対象にする）
+// Unit tests for the pure functions in budget.ts (section 5: no I/O, so they get unit tests)
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -6,7 +6,9 @@ import {
   computeActualCost,
   dateKeyUTC,
   estimateInputTokens,
+  estimateRequestTokens,
   estimateWorstCost,
+  INPUT_TOKEN_SAFETY_MARGIN,
   monthKeyUTC,
   precheckBudget,
   retryAfterSecondsForReason,
@@ -27,12 +29,22 @@ test("estimateInputTokens: null/undefined system contributes nothing", () => {
   assert.equal(estimateInputTokens(messages, null), estimateInputTokens(messages, undefined));
 });
 
+test("estimateRequestTokens: conservatively counts every UTF-8 request byte", () => {
+  const request = {
+    model: "test-model",
+    max_tokens: 10,
+    messages: [{ role: "user", content: "hi" }],
+    tools: [{ name: "large_schema", description: "x".repeat(100) }],
+  };
+  assert.equal(estimateRequestTokens(request), Buffer.byteLength(JSON.stringify(request), "utf8"));
+});
+
 test("estimateWorstCost: input estimate + max_tokens output at given pricing", () => {
   const pricing = { inputPerMTok: 2, outputPerMTok: 10 };
   const messages = [{ role: "user", content: "x".repeat(4000) }];
   const worst = estimateWorstCost({ messages, system: null, maxTokens: 1000, pricing });
   const inputTokens = estimateInputTokens(messages, null);
-  const expected = (inputTokens / 1_000_000) * 2 + (1000 / 1_000_000) * 10;
+  const expected = ((inputTokens + INPUT_TOKEN_SAFETY_MARGIN) / 1_000_000) * 2 + (1000 / 1_000_000) * 10;
   assert.ok(Math.abs(worst - expected) < 1e-12);
 });
 
@@ -75,7 +87,7 @@ test("precheckBudget: allows when comfortably under both limits", () => {
   assert.deepEqual(decision, { allowed: true });
 });
 
-test("precheckBudget: exact boundary (equal to limit) is rejected, not just over", () => {
+test("precheckBudget: exact boundary is allowed; only over-limit is rejected", () => {
   const decision = precheckBudget({
     worstCost: 10,
     tokenTodayUsd: 0,
@@ -93,11 +105,11 @@ test("dateKeyUTC / monthKeyUTC: UTC formatting, not local time", () => {
   assert.equal(monthKeyUTC(d), "2026-07");
 });
 
-// --- Retry-After 計算（A-6）--------------------------------------------------
+// --- Retry-After computation (A-6) ------------------------------------------
 
 test("secondsUntilNextUTCMidnight: mid-day gives seconds to 00:00 UTC the next day", () => {
   const now = new Date(Date.UTC(2026, 6, 6, 10, 0, 0, 0)); // 2026-07-06T10:00:00Z
-  const expected = 14 * 3600; // 10:00 -> 24:00 は 14 時間
+  const expected = 14 * 3600; // 10:00 -> 24:00 is 14 hours
   assert.equal(secondsUntilNextUTCMidnight(now), expected);
 });
 

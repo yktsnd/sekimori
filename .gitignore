@@ -1,9 +1,21 @@
 # OS / editor
 .DS_Store
 *.swp
+.idea/
+.vscode/
 
 # Node
 node_modules/
+dist/
+coverage/
+*.log
+*.tgz
+
+# Local credentials and registry configuration
+.env
+.env.*
+!.env.example
+.npmrc
 
 # runtime config / state (contains no secrets by design, but is local-only)
 sekimori.config.json

@@ -1,8 +1,10 @@
 {
   "port": 8787,
+  "listenHost": "127.0.0.1",
   "upstream": {
     "baseUrl": "https://api.anthropic.com",
-    "apiKeyEnv": "ANTHROPIC_API_KEY"
+    "apiKeyEnv": "ANTHROPIC_API_KEY",
+    "timeoutMs": 120000
   },
   "models": {
     "claude-haiku-4-5-20251001": { "inputPerMTok": 1.0, "outputPerMTok": 5.0 }

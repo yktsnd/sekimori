@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/yktsnd/sekimori/security/advisories/new
+    about: Report vulnerabilities privately; do not disclose them in an issue.
+  - name: Support and safe reporting guidance
+    url: https://github.com/yktsnd/sekimori/blob/main/SUPPORT.md
+    about: Read this before sharing logs, config, or credentials.
+  - name: Contribution scope and process
+    url: https://github.com/yktsnd/sekimori/blob/main/CONTRIBUTING.md
+    about: Check supported changes and non-goals before proposing an implementation.

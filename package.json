@@ -1,22 +1,79 @@
 {
   "name": "sekimori",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.2.0",
   "type": "module",
-  "description": "AI プロトタイプを、API キーを晒さず・予算を溶かさず・悪用されずに公開するための、最小のセルフホスト型ゲートウェイ。",
+  "description": "A minimal self-hosted gateway for shipping AI prototypes without exposing your API key, melting your budget, or becoming a free LLM proxy.",
+  "keywords": [
+    "anthropic",
+    "claude",
+    "llm",
+    "gateway",
+    "proxy",
+    "api-key",
+    "rate-limiting",
+    "budget",
+    "self-hosted",
+    "hono"
+  ],
+  "homepage": "https://github.com/yktsnd/sekimori#readme",
+  "bugs": {
+    "url": "https://github.com/yktsnd/sekimori/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yktsnd/sekimori.git"
+  },
+  "license": "MIT",
+  "bin": {
+    "sekimori": "dist/main.js"
+  },
+  "files": [
+    "dist",
+    "docs",
+    "!docs/history",
+    "examples",
+    "sekimori.config.example.json",
+    "README.md",
+    "README.ja.md",
+    "AGENTS.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "SUPPORT.md",
+    "GOVERNANCE.md",
+    "CODE_OF_CONDUCT.md",
+    "RELEASING.md",
+    "ROADMAP.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org/"
+  },
   "scripts": {
-    "start": "tsx src/main.ts",
+    "start": "node dist/main.js",
     "dev": "tsx watch src/main.ts",
-    "test": "tsx --test test/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "build": "node scripts/build.mjs",
+    "prepack": "node scripts/build.mjs",
+    "test": "node scripts/run-tests.mjs",
+    "demo": "node examples/demo.mjs",
+    "test:pack": "node test/pack-smoke.mjs",
+    "typecheck": "tsc --noEmit",
+    "release:check": "node scripts/release-check.mjs",
+    "prepublishOnly": "npm run release:check && npm run typecheck && npm test && npm run demo && npm run test:pack"
   },
   "dependencies": {
-    "@hono/node-server": "^2.0.8",
-    "hono": "^4.12.28"
+    "@hono/node-server": "^2.0.10",
+    "hono": "^4.12.30"
   },
   "devDependencies": {
-    "@types/node": "^26.1.0",
-    "tsx": "^4.23.0",
+    "@types/node": "^26.1.1",
+    "tsx": "^4.23.1",
     "typescript": "^6.0.3"
   }
 }

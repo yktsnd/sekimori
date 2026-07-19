@@ -1,37 +1,29 @@
 #!/usr/bin/env bash
-# demo.sh — sekimori のワンコマンド・シナリオデモ(docs/04-demo-design.md §1)
+# demo.sh - sekimori's one-command scenario demo (docs/04-demo-design.md, section 1)
 #
-# 「守りが効く瞬間」を実 API キーなし・課金ゼロで再現する 3 幕構成のデモであり、同時に
-# 「期待 HTTP ステータスの不一致で非ゼロ終了する」スモークテストでもある(DX レビュー B-3)。
+# A three-act demo that replays "the moments the guard kicks in" with no real
+# API key and zero spend - and at the same time a smoke test that exits
+# non-zero on any expected-HTTP-status mismatch (DX review B-3).
 #
-# 使い方:
-#   npm install   # 初回のみ
+# Usage:
+#   npm install   # first time only
 #   bash examples/demo.sh
 #
-# 実 API モード(おまけ。既定はオフライン):
-#   SEKIMORI_DEMO_REAL=1 ANTHROPIC_API_KEY=sk-... bash examples/demo.sh
-#
-# 前提: bash / curl / node(npm install 済み)。それ以外の依存なし。jq は使わない
-# (JSON の読み取りは同梱の小さな node スクリプトで行う)。
+# Requirements: bash / curl / node (after npm install). Nothing else. jq is
+# not used (JSON fields are read with a small bundled node script instead).
 
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SEKIMORI_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-REAL_MODE="${SEKIMORI_DEMO_REAL:-0}"
 UPSTREAM_PORT="${SEKIMORI_DEMO_UPSTREAM_PORT:-19999}"
 SEKIMORI_PORT="${SEKIMORI_DEMO_PORT:-18787}"
-ADMIN_KEY="demo-admin-key"
+ADMIN_KEY="demo-admin-key-32-bytes-minimum-0001"
 MODEL="claude-haiku-4-5-20251001"
 DISALLOWED_MODEL="claude-opus-4-1-20250805"
 
-if [ "$REAL_MODE" = "1" ] && [ -z "${ANTHROPIC_API_KEY:-}" ]; then
-  echo "SEKIMORI_DEMO_REAL=1 のときは ANTHROPIC_API_KEY を設定してください" >&2
-  exit 1
-fi
-
-# --- 作業ディレクトリ(mktemp -d)。trap で必ず片付け、リポジトリを汚さない -------------
+# --- Working directory (mktemp -d). Always cleaned up via trap; never dirties the repo ---
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/sekimori-demo.XXXXXX")"
 CONFIG_PATH="$TMP_DIR/sekimori.config.json"
 UPSTREAM_LOG="$TMP_DIR/mock-upstream.log"
@@ -53,7 +45,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# --- jq を使わない最小限の JSON フィールド読み取り(node のみに依存) ------------------
+# --- Minimal JSON field reader without jq (depends only on node) -----------------
 cat > "$JF" <<'EOF'
 import { readFileSync } from "node:fs";
 const [, , file, path] = process.argv;
@@ -83,7 +75,7 @@ note() {
   echo "  [$STEP] $1"
 }
 assert_status() {
-  # assert_status <説明> <期待ステータス> <実際のステータス>
+  # assert_status <description> <expected status> <actual status>
   local desc="$1" expected="$2" actual="$3"
   STEP=$((STEP + 1))
   if [ "$actual" = "$expected" ]; then
@@ -95,11 +87,11 @@ assert_status() {
   fi
 }
 
-# --- HTTP ヘルパー: ステータスコードを返し、ボディは $BODY、ヘッダは $HDRS に書く --------
+# --- HTTP helper: returns the status code; body goes to $BODY, headers to $HDRS --------
 req() {
   # req METHOD PATH [BEARER] [JSON_BODY]
   local method="$1" path="$2" bearer="${3:-}" data="${4:-}"
-  local args=(-s -D "$HDRS" -o "$BODY" -w '%{http_code}' -X "$method" "http://localhost:$SEKIMORI_PORT$path")
+  local args=(-s -D "$HDRS" -o "$BODY" -w '%{http_code}' -X "$method" "http://127.0.0.1:$SEKIMORI_PORT$path")
   [ -n "$bearer" ] && args+=(-H "Authorization: Bearer $bearer")
   if [ -n "$data" ]; then
     args+=(-H "Content-Type: application/json" -d "$data")
@@ -119,35 +111,25 @@ wait_for_http() {
     fi
     sleep 0.1
   done
-  echo "$url がタイムアウトしました。ポート $UPSTREAM_PORT / $SEKIMORI_PORT が他プロセスに使われていないか確認してください。" >&2
+  echo "timed out waiting for $url. Check that ports $UPSTREAM_PORT / $SEKIMORI_PORT are not in use by another process." >&2
   exit 1
 }
 
 # ============================================================================
-act "第1幕: 公開する"
+act "Act 1: Going live"
 # ============================================================================
 
-if [ "$REAL_MODE" = "1" ]; then
-  note "実 API モード(SEKIMORI_DEMO_REAL=1): 擬似上流は使わず本物の Anthropic API に接続します"
-  UPSTREAM_BASE_URL="https://api.anthropic.com"
-  UPSTREAM_API_KEY_ENV="ANTHROPIC_API_KEY"
-  MONTHLY_USD=5
-  ALICE_MAX_TOKENS=16
-  MALLORY_SMALL_MAX_TOKENS=16
-  MALLORY_HUGE_MAX_TOKENS=200000
-else
-  note "擬似上流(examples/mock-upstream.mjs)を起動します — 本物の Anthropic API の代役です"
-  node "$SEKIMORI_DIR/examples/mock-upstream.mjs" "$UPSTREAM_PORT" >"$UPSTREAM_LOG" 2>&1 &
-  UPSTREAM_PID=$!
-  wait_for_http "http://localhost:$UPSTREAM_PORT/healthz-not-a-real-path"
-  UPSTREAM_BASE_URL="http://localhost:$UPSTREAM_PORT"
-  UPSTREAM_API_KEY_ENV="SEKIMORI_DEMO_UPSTREAM_KEY"
-  export SEKIMORI_DEMO_UPSTREAM_KEY="dummy-mock-key"
-  MONTHLY_USD=5
-  ALICE_MAX_TOKENS=50
-  MALLORY_SMALL_MAX_TOKENS=50
-  MALLORY_HUGE_MAX_TOKENS=200000
-fi
+note "starting the mock upstream (examples/mock-upstream.mjs) - it stands in for the real Anthropic API"
+node "$SEKIMORI_DIR/examples/mock-upstream.mjs" "$UPSTREAM_PORT" >"$UPSTREAM_LOG" 2>&1 &
+UPSTREAM_PID=$!
+wait_for_http "http://127.0.0.1:$UPSTREAM_PORT/healthz-not-a-real-path"
+UPSTREAM_BASE_URL="http://127.0.0.1:$UPSTREAM_PORT"
+UPSTREAM_API_KEY_ENV="SEKIMORI_DEMO_UPSTREAM_KEY"
+export SEKIMORI_DEMO_UPSTREAM_KEY="dummy-mock-key"
+MONTHLY_USD=5
+ALICE_MAX_TOKENS=50
+MALLORY_SMALL_MAX_TOKENS=50
+MALLORY_HUGE_MAX_TOKENS=200000
 
 cat > "$CONFIG_PATH" <<EOF
 {
@@ -163,76 +145,77 @@ cat > "$CONFIG_PATH" <<EOF
 }
 EOF
 
-note "sekimori を起動します(月次上限 \$$MONTHLY_USD、レート制限 5 req/min、モデル 1 つ)"
+note "starting sekimori (monthly cap \$$MONTHLY_USD, rate limit 5 req/min, a single model)"
 TSX_BIN="$SEKIMORI_DIR/node_modules/.bin/tsx"
 if [ ! -x "$TSX_BIN" ]; then
-  echo "tsx が見つかりません。先に 'npm install' を実行してください。" >&2
+  echo "tsx not found. Run 'npm install' first." >&2
   exit 1
 fi
 SEKIMORI_ADMIN_KEY="$ADMIN_KEY" "$TSX_BIN" "$SEKIMORI_DIR/src/main.ts" "$CONFIG_PATH" >"$SEKIMORI_LOG" 2>&1 &
 SEKIMORI_PID=$!
-wait_for_http "http://localhost:$SEKIMORI_PORT/healthz"
+wait_for_http "http://127.0.0.1:$SEKIMORI_PORT/healthz"
 
-note "起動サマリ(何を守るかの宣言。DX レビュー A-3 で追加したもの)がそのまま画面に出ます:"
+note "the startup summary (a declaration of what is being protected; added in DX review A-3) prints as-is:"
 sed 's/^/        /' "$SEKIMORI_LOG"
 
 # ============================================================================
-act "第2幕: 招待する"
+act "Act 2: Inviting people"
 # ============================================================================
 
 status=$(req POST /admin/tokens "$ADMIN_KEY" '{"name":"alice","dailyUsd":1.0}')
-assert_status "alice のトークンを発行(dailyUsd: \$1.0 — 普通の利用者)" 201 "$status"
+assert_status "issue a token for alice (dailyUsd: \$1.0 - a normal user)" 201 "$status"
 ALICE_TOKEN=$(jf token)
 
-status=$(req POST /admin/tokens "$ADMIN_KEY" '{"name":"mallory","dailyUsd":0.001}')
-assert_status "mallory のトークンを発行(dailyUsd: \$0.001 — すぐ上限に達する設定)" 201 "$status"
+status=$(req POST /admin/tokens "$ADMIN_KEY" '{"name":"mallory","dailyUsd":0.002}')
+assert_status "issue a token for mallory (dailyUsd: \$0.002 - set up to hit her cap immediately)" 201 "$status"
 MALLORY_TOKEN=$(jf token)
 MALLORY_ID=$(jf id)
 
 status=$(req POST /v1/messages "$ALICE_TOKEN" "{\"model\":\"$MODEL\",\"max_tokens\":$ALICE_MAX_TOKENS,\"messages\":[{\"role\":\"user\",\"content\":\"hello from alice\"}]}")
-assert_status "alice が非ストリームで 1 往復 → 応答が返る" 200 "$status"
+assert_status "alice makes one non-streaming round trip -> gets a response" 200 "$status"
 
 status=$(req POST /v1/messages "$ALICE_TOKEN" "{\"model\":\"$MODEL\",\"max_tokens\":$ALICE_MAX_TOKENS,\"stream\":true,\"messages\":[{\"role\":\"user\",\"content\":\"hello again\"}]}")
-assert_status "alice がストリーミングで 1 往復 → テキストが流れる" 200 "$status"
+assert_status "alice makes one streaming round trip -> text streams back" 200 "$status"
 
 status=$(req GET /v1/usage "$ALICE_TOKEN")
-assert_status "alice の /v1/usage → 消費額が記録されている" 200 "$status"
-echo "        alice の今日の利用: \$$(jf todayUsd) / \$$(jf dailyLimitUsd)"
+assert_status "alice checks /v1/usage -> her spend is recorded" 200 "$status"
+echo "        alice's usage today: \$$(jf todayUsd) / \$$(jf dailyLimitUsd)"
 
 # ============================================================================
-act "第3幕: 守りが効く"
+act "Act 3: The guard kicks in"
 # ============================================================================
 
 status=$(req POST /v1/messages "" "{\"model\":\"$MODEL\",\"max_tokens\":10,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}")
-assert_status "トークンなしで /v1/messages → 野良プロキシ化しない" 401 "$status"
+assert_status "/v1/messages without a token -> sekimori does not become a free-for-all proxy" 401 "$status"
 
 status=$(req POST /v1/messages "$ALICE_TOKEN" "{\"model\":\"$DISALLOWED_MODEL\",\"max_tokens\":10,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}")
-assert_status "alice が許可外モデルを指定 → 勝手に高いモデルを使われない" 403 "$status"
+assert_status "alice requests a non-allowlisted model -> no sneaking onto pricier models" 403 "$status"
 
 status=$(req POST /v1/messages "$MALLORY_TOKEN" "{\"model\":\"$MODEL\",\"max_tokens\":$MALLORY_SMALL_MAX_TOKENS,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}")
-assert_status "mallory が 1 回使う → まだ上限内なので成功" 200 "$status"
+assert_status "mallory uses her token once -> still under her cap, so it succeeds" 200 "$status"
 
 status=$(req POST /v1/messages "$MALLORY_TOKEN" "{\"model\":\"$MODEL\",\"max_tokens\":$MALLORY_HUGE_MAX_TOKENS,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}")
 retry_after=$(retry_after_header)
-assert_status "mallory がもう 1 回使う → budget_exceeded_error(daily) + Retry-After" 429 "$status"
+assert_status "mallory tries again -> budget_exceeded_error (daily) + Retry-After" 429 "$status"
 if [ -z "$retry_after" ]; then
-  echo "  FAIL: Retry-After ヘッダがありません" >&2
+  echo "  FAIL: Retry-After header is missing" >&2
   exit 1
 fi
 error_type=$(jf error.type)
 if [ "$error_type" != "budget_exceeded_error" ]; then
-  echo "  FAIL: error.type が budget_exceeded_error ではありません ($error_type)" >&2
+  echo "  FAIL: error.type is not budget_exceeded_error ($error_type)" >&2
   exit 1
 fi
 retry_after_hours=$(awk "BEGIN { printf \"%.1f\", $retry_after / 3600 }")
-echo "        Retry-After: ${retry_after}秒(約 ${retry_after_hours} 時間後 = 次の UTC 深夜)"
+echo "        Retry-After: ${retry_after}s (about ${retry_after_hours} hours from now = next UTC midnight)"
 
-# レート制限: alice はこの時点で既に 3 回 /v1/messages を叩いている(非ストリーム・ストリーム・
-# 許可外モデル拒否の 3 回。レート制限はモデル検証より前で数えるため拒否分もカウントされる)。
-# したがって「6 連打」の中の何回目で 429 になるかは実行順に依存しうる — ここでは「6 回連打する
-# うちに rate_limit_error + Retry-After が必ず 1 回は起きること」を検証する(判断: README の
-# 判断メモ参照)。
-note "alice が 6 連打 → レート制限(5 req/min)に引っかかり rate_limit_error + Retry-After が出る"
+# Rate limiting: alice has already hit /v1/messages 3 times by now (non-streaming,
+# streaming, and the disallowed-model rejection - the rate limiter counts requests
+# before model validation, so rejections count too). So exactly which of the "6
+# rapid-fire requests" gets the 429 can depend on execution order - here we verify
+# that "within 6 rapid-fire requests, rate_limit_error + Retry-After happens at
+# least once" (decision: see the judgment notes referenced from the README).
+note "alice fires 6 rapid requests -> hits the rate limit (5 req/min): rate_limit_error + Retry-After"
 rate_limited=0
 for i in 1 2 3 4 5 6; do
   status=$(req POST /v1/messages "$ALICE_TOKEN" "{\"model\":\"$MODEL\",\"max_tokens\":$ALICE_MAX_TOKENS,\"messages\":[{\"role\":\"user\",\"content\":\"burst $i\"}]}")
@@ -241,21 +224,21 @@ for i in 1 2 3 4 5 6; do
     retry_after=$(retry_after_header)
     if [ "$error_type" = "rate_limit_error" ] && [ -n "$retry_after" ]; then
       rate_limited=1
-      echo "        $i 回目で 429 rate_limit_error(Retry-After: ${retry_after}秒)"
+      echo "        request $i got 429 rate_limit_error (Retry-After: ${retry_after}s)"
       break
     fi
   fi
 done
 STEP=$((STEP + 1))
 if [ "$rate_limited" = "1" ]; then
-  echo "  [$STEP] OK   6 連打のうちに rate_limit_error + Retry-After が発生した"
+  echo "  [$STEP] OK   rate_limit_error + Retry-After occurred within the 6 rapid requests"
 else
-  echo "  [$STEP] FAIL 6 連打しても rate_limit_error が発生しなかった" >&2
+  echo "  [$STEP] FAIL no rate_limit_error within 6 rapid requests" >&2
   exit 1
 fi
 
 status=$(req GET /admin/usage "$ADMIN_KEY")
-assert_status "管理者が /admin/usage で全体を確認 → mallory の消費が見える" 200 "$status"
+assert_status "the operator checks /admin/usage -> mallory's spend is visible" 200 "$status"
 mallory_seen=$(node -e '
 const fs = require("node:fs");
 const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -263,18 +246,18 @@ const found = (data.tokens || []).some((t) => t.name === "mallory");
 process.stdout.write(found ? "yes" : "no");
 ' "$BODY")
 if [ "$mallory_seen" != "yes" ]; then
-  echo "  FAIL: /admin/usage の一覧に mallory が見当たりません" >&2
+  echo "  FAIL: mallory is missing from the /admin/usage listing" >&2
   exit 1
 fi
-echo "        /admin/usage に mallory の利用状況が含まれていることを確認"
+echo "        confirmed /admin/usage includes mallory's usage"
 
 status=$(req DELETE "/admin/tokens/$MALLORY_ID" "$ADMIN_KEY")
-assert_status "管理者が mallory を失効させる" 200 "$status"
+assert_status "the operator revokes mallory's token" 200 "$status"
 
 status=$(req POST /v1/messages "$MALLORY_TOKEN" "{\"model\":\"$MODEL\",\"max_tokens\":10,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}")
-assert_status "失効させた mallory の次のリクエストが即座に 401 になる(招待の取り消しが効く)" 401 "$status"
+assert_status "mallory's next request after revocation is immediately 401 (uninviting works)" 401 "$status"
 
-note "まとめ: この間、上流に漏れたのは alice と mallory の正当なリクエストだけ。API キーは一度もクライアントに渡っていない。"
+note "Summary: throughout all of this, the only traffic that reached the upstream was alice's and mallory's legitimate requests. The API key never left the server."
 
 echo
-echo "全 $STEP ステップ完走。終了コード 0。"
+echo "All $STEP steps completed. Exit code 0."

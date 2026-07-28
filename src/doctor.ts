@@ -4,9 +4,14 @@
 // correct. It never starts the HTTP server and never makes a network call -
 // it only reads the config file, checks environment variables are present
 // (never their values), and probes whether the configured store location is
-// writable, without ever touching the real state file. Every check is
-// reported with a stable snake_case `name` so an agent can key on it, plus
-// `status` ("ok" | "warn" | "fail") and a human-readable `detail`.
+// writable, without ever touching the real state file or taking its lock.
+// For a file store, it also inspects the adjacent `<path>.lock` and reports
+// a lock naming a dead process as a failure (issue #27) - that is exactly
+// the stale-lock state startup itself refuses to boot on - while a lock
+// naming a live process is left as-is (that just means sekimori is
+// currently running, not a fault). Every check is reported with a stable
+// snake_case `name` so an agent can key on it, plus `status` ("ok" | "warn"
+// | "fail") and a human-readable `detail`.
 //
 // The config_valid check reuses the placeholder-env technique from
 // init.ts's validateGeneratedConfig: it runs the real validateConfig (so
@@ -66,6 +71,26 @@ function isErrnoException(err: unknown): err is NodeJS.ErrnoException {
 }
 
 /**
+ * Determines whether `pid` names a process that is currently alive, using
+ * the same `process.kill(pid, 0)` probe store.ts's lock file already
+ * records the pid for. Sends no actual signal (0 only checks existence /
+ * permission). EPERM means a process exists but is owned by another user -
+ * that is "alive" for our purposes, since it can still hold the store lock.
+ * Any other failure (unexpected errno) is re-thrown so the caller can report
+ * "cannot determine" rather than guessing.
+ */
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    if (isErrnoException(err) && err.code === "ESRCH") return false;
+    if (isErrnoException(err) && err.code === "EPERM") return true;
+    throw err;
+  }
+}
+
+/**
  * Runs the real validateConfig against `parsed`, but first fills in
  * placeholder values for the upstream API key env var (if it
  * can be determined from `parsed.upstream.apiKeyEnv`) and
@@ -113,15 +138,108 @@ function checkUpstreamKeyEnv(config: SekimoriConfig): DoctorCheck {
   };
 }
 
+/** Command suggested in every "generate a strong admin key" message across
+ * init.ts and doctor.ts - kept in one place so the two stay consistent. */
+const GENERATE_ADMIN_KEY_COMMAND = "node -e \"console.log(require('crypto').randomBytes(32).toString('base64url'))\"";
+
+/** A present-but-too-weak SEKIMORI_ADMIN_KEY (too short, empty/whitespace,
+ * or containing non-visible-ASCII characters) must be a `fail`, not a
+ * silent `ok` - it will be refused at startup just the same as a missing
+ * one (config.ts's validateConfig). The value itself is never inspected in
+ * the output, only its length/shape. */
 function checkAdminKeyEnv(): DoctorCheck {
   const value = process.env.SEKIMORI_ADMIN_KEY;
   if (value !== undefined && value.length >= 32 && /^[\x21-\x7e]+$/.test(value)) {
     return { name: "admin_key_env", status: "ok", detail: "SEKIMORI_ADMIN_KEY is set" };
   }
+  const reason =
+    value === undefined
+      ? "is not set"
+      : value.trim().length === 0
+        ? "is set but empty or whitespace-only"
+        : !/^[\x21-\x7e]+$/.test(value)
+          ? "is set but contains non-visible-ASCII characters"
+          : `is set but only ${value.length} character${value.length === 1 ? "" : "s"} long`;
   return {
     name: "admin_key_env",
     status: "fail",
-    detail: "environment variable SEKIMORI_ADMIN_KEY must be set to at least 32 visible ASCII characters",
+    detail:
+      `environment variable SEKIMORI_ADMIN_KEY ${reason} - it must be at least 32 visible ASCII characters. ` +
+      `Generate a strong one with: ${GENERATE_ADMIN_KEY_COMMAND}`,
+  };
+}
+
+/** Pointer to the documented recovery procedure, kept in one place so the
+ * doctor detail, docs/deploy.md, and AGENTS.md stay consistent in wording. */
+const LOCK_RECOVERY_POINTER =
+  "see docs/deploy.md#crash-recovery-sigkill--oom-kill: confirm no sekimori process still owns it, then remove only the .lock file - never the state file";
+
+interface LockLivenessResult {
+  status: DoctorStatus;
+  detail: string;
+}
+
+/**
+ * Inspects `<store.path>.lock` WITHOUT taking it (store_writable must never
+ * disturb a live process's lock), and reports whether the state it names
+ * would block startup the way store.ts's acquireLock does:
+ *   - No lock file: undefined (nothing to add to the check).
+ *   - Lock file present, recorded pid alive (or EPERM - owned by another
+ *     user but alive): "ok" - this is the normal state while sekimori is
+ *     running, never a failure.
+ *   - Lock file present, recorded pid not alive: "fail" - this is exactly
+ *     the stale-lock state that startup refuses to boot on (issue #27); the
+ *     detail names the lock path and the recovery procedure, never the
+ *     lock's contents (pid/nonce/timestamp).
+ *   - Lock file present but unreadable, not valid JSON, missing/invalid
+ *     `pid`, or liveness itself cannot be determined (an unexpected errno
+ *     from the kill(pid, 0) probe): "warn" - liveness is genuinely unknown,
+ *     so this must not be reported as a false "ok" (it could be a stale
+ *     lock) nor a false "fail" (it could be a live, healthy process whose
+ *     lock is merely mid-write).
+ */
+function checkLockLiveness(lockPath: string): LockLivenessResult | undefined {
+  if (!existsSync(lockPath)) return undefined;
+
+  let raw: string;
+  try {
+    raw = readFileSync(lockPath, "utf8");
+  } catch (err) {
+    return {
+      status: "warn",
+      detail: `lock file exists but could not be read (${(err as Error).message}), so its owner's liveness cannot be determined - do not assume it is safe to remove: ${lockPath}`,
+    };
+  }
+
+  let pid: unknown;
+  try {
+    pid = (JSON.parse(raw) as { pid?: unknown }).pid;
+  } catch {
+    pid = undefined;
+  }
+  if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0) {
+    return {
+      status: "warn",
+      detail: `lock file exists but its contents could not be parsed into a valid pid, so its owner's liveness cannot be determined - do not assume it is safe to remove: ${lockPath}`,
+    };
+  }
+
+  let alive: boolean;
+  try {
+    alive = isPidAlive(pid);
+  } catch (err) {
+    return {
+      status: "warn",
+      detail: `lock file exists but its recorded process's liveness could not be determined (${(err as Error).message}) - do not assume it is safe to remove: ${lockPath}`,
+    };
+  }
+
+  if (alive) {
+    return { status: "ok", detail: `existing lock is held by a live process - this is expected while sekimori is running: ${lockPath}` };
+  }
+  return {
+    status: "fail",
+    detail: `stale lock: ${lockPath} names a process that is no longer running. Startup will refuse to boot while this file exists (${LOCK_RECOVERY_POINTER}).`,
   };
 }
 
@@ -137,6 +255,11 @@ function checkAdminKeyEnv(): DoctorCheck {
  *     private probe directory next to the configured path. The probe file is
  *     created exclusively inside it, so a predictable path or a pre-existing
  *     symlink can never be overwritten.
+ *   - Also inspects the adjacent `<path>.lock`, without ever taking it (see
+ *     checkLockLiveness): a lock naming a dead process is exactly the
+ *     stale-lock state that blocks startup (issue #27) and must fail this
+ *     check, while a lock naming a live process is the normal "sekimori is
+ *     currently running" state and must not.
  */
 function checkStoreWritable(config: SekimoriConfig): DoctorCheck {
   if (config.store.type === "memory") {
@@ -148,6 +271,7 @@ function checkStoreWritable(config: SekimoriConfig): DoctorCheck {
   }
 
   const path = config.store.path;
+  let base: { status: "ok" | "fail"; detail: string };
   try {
     const stateExists = existsSync(path);
     if (stateExists && !statSync(path).isFile()) {
@@ -170,14 +294,21 @@ function checkStoreWritable(config: SekimoriConfig): DoctorCheck {
       rmSync(renamedProbe, { force: true });
       rmSync(probeDir, { recursive: true, force: true });
     }
-    return {
-      name: "store_writable",
+    base = {
       status: "ok",
       detail: stateExists ? `store file is valid and writable: ${path}` : `store directory is writable: ${dir}`,
     };
   } catch (err) {
-    return { name: "store_writable", status: "fail", detail: `store path is not writable: ${path} (${(err as Error).message})` };
+    base = { status: "fail", detail: `store path is not writable: ${path} (${(err as Error).message})` };
   }
+
+  const lock = checkLockLiveness(`${path}.lock`);
+  if (lock === undefined) {
+    return { name: "store_writable", status: base.status, detail: base.detail };
+  }
+
+  const status: DoctorStatus = base.status === "fail" || lock.status === "fail" ? "fail" : lock.status === "warn" ? "warn" : "ok";
+  return { name: "store_writable", status, detail: `${base.detail}; ${lock.detail}` };
 }
 
 function checkLogging(config: SekimoriConfig): DoctorCheck {
@@ -289,9 +420,11 @@ export const DOCTOR_HELP_TEXT = `${DOCTOR_USAGE_LINE}
 Non-interactive self-check of a concrete sekimori installation: verifies the
 config file exists and is valid, the required environment variables are set
 (never prints their values), the configured store location is writable
-(without ever touching an existing state file), and reports whether
-request/response body logging is enabled. Never starts the HTTP server and
-never makes a network call.
+(without ever touching an existing state file or taking its lock - a file
+store's adjacent lock naming a dead process is reported as a failure, since
+that is exactly the state startup itself refuses to boot on), and reports
+whether request/response body logging is enabled. Never starts the HTTP
+server and never makes a network call.
 
 Run it after any config or environment change, and before handing the URL
 to anyone.

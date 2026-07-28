@@ -753,16 +753,25 @@ async function promptAll(rl: Rl, output: NodeJS.WritableStream, overrides: InitF
  * init can never write a config that startup would then reject.
  *
  * validateConfig also checks that the upstream API key env var and
- * SEKIMORI_ADMIN_KEY are actually *set* in process.env (by design - startup
- * fails closed if a secret is missing). Generating a config file ahead of
- * time must not require the operator to already have the real secret
- * exported in their shell, so this temporarily sets placeholder values for
- * whichever of those two are not already present, runs the real
- * validateConfig (exercising every other rule unchanged), and restores
- * process.env exactly as it was afterwards - including deleting the
- * placeholder if the var was unset before. Every other validation rule
- * (models non-empty, positive prices, budget/rateLimit positivity, store
- * type, ...) runs for real, unmodified.
+ * SEKIMORI_ADMIN_KEY are actually *set* (and strong enough) in process.env
+ * (by design - startup fails closed if a secret is missing or weak).
+ * Whether the *generated config file* is well-formed must never depend on
+ * what the operator happens to have exported at generation time - a v0.2.0
+ * release blocker was exactly this: a weak-but-present SEKIMORI_ADMIN_KEY
+ * made init refuse to write a file at all, and blamed itself for an
+ * internal bug (see CHANGELOG.md). So this ALWAYS substitutes strong,
+ * syntactically-valid placeholder values for both secrets - regardless of
+ * whether the operator already has real (possibly weak, empty, or
+ * non-ASCII) values exported - runs the real validateConfig (exercising
+ * every other rule unchanged), and restores process.env exactly as it was
+ * afterwards, including deleting the var entirely if it was unset before.
+ * Every other validation rule (models non-empty, positive prices,
+ * budget/rateLimit positivity, store type, ...) runs for real, unmodified.
+ *
+ * The operator's *real* secrets are judged later, at actual startup
+ * (config.ts's validateConfig via loadConfigFromFile) and by `sekimori
+ * doctor` - never here. See also runInit's post-write warning, which tells
+ * the operator when their already-exported secrets would fail at startup.
  */
 function validateGeneratedConfig(configObject: Record<string, unknown>, apiKeyEnv: string): SekimoriConfig {
   const hadApiKey = apiKeyEnv in process.env;
@@ -770,8 +779,8 @@ function validateGeneratedConfig(configObject: Record<string, unknown>, apiKeyEn
   const savedApiKey = process.env[apiKeyEnv];
   const savedAdminKey = process.env.SEKIMORI_ADMIN_KEY;
 
-  if (!hadApiKey) process.env[apiKeyEnv] = "sekimori-init-upstream-placeholder";
-  if (!hadAdminKey) process.env.SEKIMORI_ADMIN_KEY = "sekimori-init-admin-placeholder-value";
+  process.env[apiKeyEnv] = "sekimori-init-upstream-placeholder";
+  process.env.SEKIMORI_ADMIN_KEY = "sekimori-init-admin-placeholder-value";
 
   try {
     return validateConfig(configObject);
@@ -783,6 +792,58 @@ function validateGeneratedConfig(configObject: Record<string, unknown>, apiKeyEn
   }
 }
 
+/** The same rule config.ts's validateConfig applies to a secret env var's
+ * value, reimplemented read-only (never printed) so init can warn about an
+ * already-exported value without duplicating validateConfig itself. Returns
+ * a short human-readable reason the value would be rejected at startup, or
+ * undefined if it would pass. `minLength` mirrors SEKIMORI_ADMIN_KEY's
+ * extra 32-character minimum (config.ts). */
+function describeAmbientSecretProblem(value: string | undefined, minLength?: number): string | undefined {
+  if (value === undefined) return undefined; // not exported yet - covered by the "export" step above, not a warning
+  if (value.trim().length === 0) return "is empty or whitespace-only";
+  if (!/^[\x21-\x7e]+$/.test(value)) return "contains non-visible-ASCII characters";
+  if (minLength !== undefined && value.length < minLength) return `is only ${value.length} character${value.length === 1 ? "" : "s"} long (must be at least ${minLength})`;
+  return undefined;
+}
+
+/** Builds "next steps" warning lines for already-exported secrets that would
+ * be refused at startup (issue: weak-key release blocker). Never includes
+ * the secret values themselves - only variable names and reasons. Returns
+ * an empty array when there is nothing to warn about (the common case). */
+function ambientSecretWarnings(apiKeyEnv: string): string[] {
+  const apiKeyValue = process.env[apiKeyEnv];
+  const adminKeyValue = process.env.SEKIMORI_ADMIN_KEY;
+  const apiKeyProblem = describeAmbientSecretProblem(apiKeyValue);
+  const adminKeyProblem = describeAmbientSecretProblem(adminKeyValue, 32);
+
+  const lines: string[] = [];
+  if (apiKeyProblem !== undefined) {
+    lines.push(
+      `WARNING: the currently exported ${apiKeyEnv} ${apiKeyProblem} - sekimori will refuse to start with it.`,
+      "  Export a valid value before starting sekimori (see step 2 below).",
+    );
+  }
+  if (adminKeyProblem !== undefined) {
+    lines.push(
+      `WARNING: the currently exported SEKIMORI_ADMIN_KEY ${adminKeyProblem} - sekimori will refuse to start with it.`,
+      "  Generate a strong one before starting sekimori (see step 1 below):",
+      '    node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'base64url\'))"',
+    );
+  }
+  if (
+    apiKeyProblem === undefined &&
+    adminKeyProblem === undefined &&
+    apiKeyValue !== undefined &&
+    adminKeyValue !== undefined &&
+    apiKeyValue === adminKeyValue
+  ) {
+    lines.push(
+      `WARNING: ${apiKeyEnv} and SEKIMORI_ADMIN_KEY are currently exported to the same value - sekimori requires them to differ and will refuse to start.`,
+    );
+  }
+  return lines;
+}
+
 function printNextSteps(output: NodeJS.WritableStream, path: string, apiKeyEnv: string): void {
   const keyExportLine =
     apiKeyEnv === BEDROCK_API_KEY_ENV
@@ -792,10 +853,13 @@ function printNextSteps(output: NodeJS.WritableStream, path: string, apiKeyEnv: 
     apiKeyEnv === BEDROCK_API_KEY_ENV
       ? `       $env:${apiKeyEnv} = "<your Bedrock API key>"   # see docs/configuration.md, "Using Amazon Bedrock"`
       : `       $env:${apiKeyEnv} = "sk-ant-..."      # your real upstream API key`;
+  const warnings = ambientSecretWarnings(apiKeyEnv);
+  const warningBlock = warnings.length > 0 ? ["", ...warnings] : [];
   output.write(
     [
       "",
       `[sekimori init] wrote ${path}`,
+      ...warningBlock,
       "",
       "Next steps:",
       "  1. Generate an admin key:",

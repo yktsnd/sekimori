@@ -252,6 +252,7 @@ so it is suitable only for an app whose frontend you trust against XSS.
 | Operate sekimori as a coding agent | [AGENTS.md](AGENTS.md) |
 | Configure sekimori | [Configuration](docs/configuration.md) |
 | Call or administer it | [API reference](docs/api.md) |
+| Deploy it (rehearsed steps, crash recovery) | [Deploy guide](docs/deploy.md) |
 | Understand guarantees, assumptions, and failure behavior | [Security model](docs/security-model.md) |
 | Understand design constraints and extension points | [Design](docs/design.md) |
 | Contribute or ask for help | [CONTRIBUTING.md](CONTRIBUTING.md) / [SUPPORT.md](SUPPORT.md) |

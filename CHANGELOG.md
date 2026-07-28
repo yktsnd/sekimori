@@ -6,6 +6,74 @@ All notable changes to sekimori are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `docs/deploy.md` (issue #25): a deployment guide written from an executed
+  rehearsal of the packaged tarball on real OS processes (no Docker in the
+  rehearsal environment) — install, non-interactive `init`, `doctor`, boot,
+  admin token issue, a `/v1/messages` round trip through the offline mock
+  upstream, `/v1/usage`, a tokenless 401 probe, graceful restart (SIGTERM),
+  and a hard kill (SIGKILL). The hard-kill rehearsal confirmed the exact
+  `file store is already locked` fatal-error message and exit code `1`
+  documented in `design.md`, found that `sekimori doctor` currently reports
+  `ok: true` against that same stuck lock (a real gap, reported to the
+  reviewer rather than silently reworked), and records the verified
+  three-step recovery procedure. Linked from both READMEs, AGENTS.md, and
+  RELEASING.md's deployment gate item; a plain-language pointer was added to
+  both owner guides. A hosted HTTPS deployment stays out of scope pending
+  the owner's hosting credentials (issue #9) and is explicitly marked
+  "not yet verified" in the new doc.
+
+### Fixed
+- `sekimori init` no longer depends on ambient environment variables to
+  decide whether its own generated config file is valid (release blocker).
+  Previously, pre-write validation substituted a placeholder secret only
+  when the upstream API key env var or `SEKIMORI_ADMIN_KEY` were *absent*;
+  if either was already exported — even to a weak, empty, or
+  whitespace-only value, as AGENTS.md and `init`'s own "next steps" both
+  instruct operators to do before starting sekimori — `init` validated
+  against that real value instead, failed, and misreported the failure as
+  "a bug in sekimori init - please report it," writing nothing. Generation
+  now always validates against strong placeholder values regardless of what
+  is exported, so the written file is byte-identical whether or not those
+  variables are set. Startup and `sekimori doctor` are unchanged and still
+  fail closed on a missing or weak secret; `doctor`'s `admin_key_env` check
+  now names the 32-character rule and the key-generation command in its
+  failure detail (still never printing the value). `init` also now prints a
+  labelled `WARNING:` after writing the file when an already-exported
+  secret would be rejected at startup — the exit code stays `0`.
+- `sekimori doctor` no longer reports `ok: true` while a stale file-store
+  lock blocks startup (issue #27). A deployment rehearsal against the
+  packaged tarball established that after a `SIGKILL`, `<store.path>.lock`
+  survives with the dead process's pid, startup correctly refuses to boot
+  (`file store is already locked ...`, exit `1`), but `doctor --json`
+  against that same state reported `ok: true` with `store_writable: "ok"` —
+  `checkStoreWritable` never looked at the lock file. `store_writable` now
+  inspects the adjacent `<store.path>.lock`, without ever taking it: a lock
+  naming a process that is still alive (`process.kill(pid, 0)`, treating
+  `EPERM` as alive) is left as `ok` — that is the normal state while
+  sekimori is running — while a lock naming a process that is no longer
+  alive is `fail`, with a detail naming the lock path and pointing at the
+  recovery procedure in `docs/deploy.md`'s crash-recovery section. A lock
+  file that cannot be read, is not valid JSON, or has no usable `pid` field
+  is `warn`, since liveness is genuinely unknown in that case. The lock
+  file's contents (pid, nonce, timestamp) are never included in human or
+  `--json` output — only its path. Startup's own refusal is unchanged.
+
+### Changed
+- `RELEASING.md` (issue #26): closed every release-gate item that does not
+  require maintainer credentials, with dated 2026-07-28 evidence — the
+  merged status of PR #18, README badges, community-health file routing,
+  issue-template routing, and a fresh re-check of Anthropic/Bedrock pricing,
+  billing, and credential guidance against official documentation (no stale
+  claims found; the shipped Haiku 4.5 reference prices already match current
+  official pricing). The private-vulnerability-reporting-from-a-second-account
+  and X-DM-liveness checks are now marked non-blocking/deferrable, with the
+  hosted-deployment item (issue #9) explicitly kept open. The gate ends with
+  an ordered, maintainer-only checklist (npm 2FA, `NPM_TOKEN`, running
+  `Publish npm`, npm 2FA approval, Trusted Publishing, `.github/social-preview.jpg`
+  upload, and a GitHub email-privacy setting) so publish only waits on steps
+  that genuinely need a human.
+
 ## [0.2.0] - 2026-07-18
 
 ### Changed — public-release hardening

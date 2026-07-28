@@ -214,6 +214,58 @@ test("doctor: missing admin key env var - admin_key_env fails", (t) => {
   assert.equal(result.ok, false);
 });
 
+// A present-but-too-weak SEKIMORI_ADMIN_KEY (release blocker: init.ts's
+// validateGeneratedConfig used to reject config generation itself because
+// of this, misreporting it as an internal bug - see CHANGELOG.md). doctor
+// must fail closed on it, never silently report "ok", and never print the
+// value.
+test("doctor: present-but-too-short admin key env var - admin_key_env fails (not a silent ok), exit 1, value never printed", (t) => {
+  t.after(resetEnv);
+  const dir = tmpDir("sekimori-doctor-weakadmin-");
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  process.env[TEST_KEY_ENV] = "sk-test-value";
+  process.env.SEKIMORI_ADMIN_KEY = "dummy-admin"; // 11 chars, well under the 32-char minimum
+
+  const configPath = writeConfig(dir, { store: { type: "file", path: join(dir, "state.json") } });
+  const result = runDoctorChecks(configPath);
+
+  const byName = new Map(result.checks.map((c) => [c.name, c]));
+  assert.equal(byName.get("admin_key_env")?.status, "fail");
+  const detail = byName.get("admin_key_env")?.detail ?? "";
+  assert.match(detail, /32/); // names the rule
+  assert.match(detail, /randomBytes/); // names the generation command
+  assert.ok(!detail.includes("dummy-admin"));
+  assert.equal(result.ok, false);
+
+  const { stream: jsonStream, text: jsonText } = capturingOutput();
+  const jsonExitCode = runDoctor([configPath, "--json"], { output: jsonStream });
+  assert.equal(jsonExitCode, 1);
+  assert.ok(!jsonText().includes("dummy-admin"));
+
+  const { stream: humanStream, text: humanText } = capturingOutput();
+  const humanExitCode = runDoctor([configPath], { output: humanStream });
+  assert.equal(humanExitCode, 1);
+  assert.match(humanText(), /FAIL\s+admin_key_env/);
+  assert.ok(!humanText().includes("dummy-admin"));
+});
+
+test("doctor: empty-string / whitespace-only admin key env var also fails admin_key_env", (t) => {
+  t.after(resetEnv);
+  const dir = tmpDir("sekimori-doctor-blankadmin-");
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  process.env[TEST_KEY_ENV] = "sk-test-value";
+
+  const configPath = writeConfig(dir, { store: { type: "file", path: join(dir, "state.json") } });
+
+  for (const value of ["", "   "]) {
+    process.env.SEKIMORI_ADMIN_KEY = value;
+    const result = runDoctorChecks(configPath);
+    const byName = new Map(result.checks.map((c) => [c.name, c]));
+    assert.equal(byName.get("admin_key_env")?.status, "fail", JSON.stringify(value));
+    assert.equal(result.ok, false, JSON.stringify(value));
+  }
+});
+
 // ---------------------------------------------------------------------------
 // store_writable / logging - warn cases (still ok:true)
 // ---------------------------------------------------------------------------
@@ -369,6 +421,160 @@ test("doctor: a relative store path is checked relative to the config file", (t)
   assert.equal(storeCheck?.status, "ok");
   assert.match(storeCheck?.detail ?? "", new RegExp(dir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.equal(existsSync(join(dir, "state.json")), false, "doctor must not create the relative state file");
+});
+
+// ---------------------------------------------------------------------------
+// store_writable - lock-file liveness (issue #27: doctor must not stay
+// fail-open on a stale file-store lock that startup itself refuses to boot
+// on - see store.ts's acquireLock and docs/deploy.md's crash-recovery
+// section).
+// ---------------------------------------------------------------------------
+
+/** A pid that is virtually guaranteed not to be running: node's own pid_max
+ * ceiling is 4194304 on Linux; well beyond any real pid keeps this portable
+ * and avoids relying on a specific OS's pid-reuse behavior. */
+const DEFINITELY_DEAD_PID = 4194303;
+
+function writeLockFile(path: string, contents: unknown): void {
+  writeFileSync(path, JSON.stringify(contents));
+}
+
+test("doctor: stale lock (dead pid) - store_writable fails, names the lock path and the recovery pointer, exit 1", (t) => {
+  t.after(resetEnv);
+  const dir = tmpDir("sekimori-doctor-stale-lock-");
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  process.env[TEST_KEY_ENV] = "sk-test-value";
+  process.env.SEKIMORI_ADMIN_KEY = "admin-test-value-32-bytes-minimum-0001";
+
+  const statePath = join(dir, "state.json");
+  const lockPath = `${statePath}.lock`;
+  writeLockFile(lockPath, { pid: DEFINITELY_DEAD_PID, nonce: "dead-nonce", createdAt: "2026-01-01T00:00:00.000Z" });
+
+  const configPath = writeConfig(dir, { store: { type: "file", path: statePath } });
+  const result = runDoctorChecks(configPath);
+
+  const byName = new Map(result.checks.map((c) => [c.name, c]));
+  const storeCheck = byName.get("store_writable");
+  assert.equal(storeCheck?.status, "fail");
+  assert.equal(result.ok, false);
+  const detail = storeCheck?.detail ?? "";
+  assert.ok(detail.includes(lockPath), "detail must name the lock path");
+  assert.match(detail, /docs\/deploy\.md#crash-recovery-sigkill--oom-kill/);
+  assert.ok(!detail.includes("dead-nonce"), "lock file contents beyond the path must never leak");
+
+  const { stream: jsonStream, text: jsonText } = capturingOutput();
+  const jsonExitCode = runDoctor([configPath, "--json"], { output: jsonStream });
+  assert.equal(jsonExitCode, 1);
+  const jsonParsed = JSON.parse(jsonText());
+  assert.equal(jsonParsed.ok, false);
+  assert.ok(!jsonText().includes("dead-nonce"));
+
+  // The lock file itself must be left untouched - doctor never takes it.
+  assert.equal(existsSync(lockPath), true);
+  assert.equal(JSON.parse(readFileSync(lockPath, "utf8")).nonce, "dead-nonce");
+});
+
+test("doctor: lock owned by a live process (this test's own pid) - not a failure", (t) => {
+  t.after(resetEnv);
+  const dir = tmpDir("sekimori-doctor-live-lock-");
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  process.env[TEST_KEY_ENV] = "sk-test-value";
+  process.env.SEKIMORI_ADMIN_KEY = "admin-test-value-32-bytes-minimum-0001";
+
+  const statePath = join(dir, "state.json");
+  const lockPath = `${statePath}.lock`;
+  writeLockFile(lockPath, { pid: process.pid, nonce: "live-nonce", createdAt: "2026-01-01T00:00:00.000Z" });
+
+  const configPath = writeConfig(dir, { store: { type: "file", path: statePath } });
+  const result = runDoctorChecks(configPath);
+
+  const byName = new Map(result.checks.map((c) => [c.name, c]));
+  const storeCheck = byName.get("store_writable");
+  assert.notEqual(storeCheck?.status, "fail");
+  assert.equal(result.ok, true);
+  assert.ok(!(storeCheck?.detail ?? "").includes("live-nonce"));
+
+  const { stream } = capturingOutput();
+  const exitCode = runDoctor([configPath], { output: stream });
+  assert.equal(exitCode, 0);
+});
+
+test("doctor: malformed lock file (not valid JSON) - liveness cannot be determined, asserted explicitly", (t) => {
+  t.after(resetEnv);
+  const dir = tmpDir("sekimori-doctor-malformed-lock-");
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  process.env[TEST_KEY_ENV] = "sk-test-value";
+  process.env.SEKIMORI_ADMIN_KEY = "admin-test-value-32-bytes-minimum-0001";
+
+  const statePath = join(dir, "state.json");
+  const lockPath = `${statePath}.lock`;
+  writeFileSync(lockPath, "{ not valid JSON at all");
+
+  const configPath = writeConfig(dir, { store: { type: "file", path: statePath } });
+  const result = runDoctorChecks(configPath);
+
+  const byName = new Map(result.checks.map((c) => [c.name, c]));
+  const storeCheck = byName.get("store_writable");
+  // Design choice (documented in doctor.ts's checkLockLiveness): an unreadable
+  // pid is reported as "warn", not a false "ok" and not a false "fail" -
+  // liveness is genuinely unknown from this file alone.
+  assert.equal(storeCheck?.status, "warn");
+  assert.equal(result.ok, true, "a warn must not fail the overall result");
+  assert.match(storeCheck?.detail ?? "", /cannot be determined/);
+  assert.ok((storeCheck?.detail ?? "").includes(lockPath));
+});
+
+test("doctor: lock file with a missing/invalid pid field - warn, liveness cannot be determined", (t) => {
+  t.after(resetEnv);
+  const dir = tmpDir("sekimori-doctor-nopid-lock-");
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  process.env[TEST_KEY_ENV] = "sk-test-value";
+  process.env.SEKIMORI_ADMIN_KEY = "admin-test-value-32-bytes-minimum-0001";
+
+  const statePath = join(dir, "state.json");
+  const lockPath = `${statePath}.lock`;
+  writeLockFile(lockPath, { nonce: "no-pid-nonce", createdAt: "2026-01-01T00:00:00.000Z" });
+
+  const configPath = writeConfig(dir, { store: { type: "file", path: statePath } });
+  const result = runDoctorChecks(configPath);
+
+  const byName = new Map(result.checks.map((c) => [c.name, c]));
+  const storeCheck = byName.get("store_writable");
+  assert.equal(storeCheck?.status, "warn");
+  assert.equal(result.ok, true);
+  assert.ok(!(storeCheck?.detail ?? "").includes("no-pid-nonce"));
+});
+
+test("doctor: no lock file - store_writable unchanged (ok)", (t) => {
+  t.after(resetEnv);
+  const dir = tmpDir("sekimori-doctor-nolock-");
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  process.env[TEST_KEY_ENV] = "sk-test-value";
+  process.env.SEKIMORI_ADMIN_KEY = "admin-test-value-32-bytes-minimum-0001";
+
+  const statePath = join(dir, "state.json");
+  const configPath = writeConfig(dir, { store: { type: "file", path: statePath } });
+  const result = runDoctorChecks(configPath);
+
+  const byName = new Map(result.checks.map((c) => [c.name, c]));
+  assert.equal(byName.get("store_writable")?.status, "ok");
+  assert.equal(result.ok, true);
+});
+
+test("doctor: memory store - lock-liveness logic never applies, unchanged warn behavior", (t) => {
+  t.after(resetEnv);
+  const dir = tmpDir("sekimori-doctor-memory-lock-");
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  process.env[TEST_KEY_ENV] = "sk-test-value";
+  process.env.SEKIMORI_ADMIN_KEY = "admin-test-value-32-bytes-minimum-0001";
+
+  const configPath = writeConfig(dir, { store: { type: "memory", path: "" } });
+  const result = runDoctorChecks(configPath);
+
+  const byName = new Map(result.checks.map((c) => [c.name, c]));
+  assert.equal(byName.get("store_writable")?.status, "warn");
+  assert.match(byName.get("store_writable")?.detail ?? "", /resets on every restart/);
+  assert.equal(result.ok, true);
 });
 
 test("doctor: a directory at the configured state-file path fails the self-check", (t) => {

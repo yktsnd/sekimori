@@ -1,3 +1,5 @@
+![sekimori — a fail-closed self-hosted gateway guarding an Anthropic/Bedrock API key with invite tokens and budget limits](https://raw.githubusercontent.com/yktsnd/sekimori/main/.github/social-preview.jpg)
+
 # sekimori (関守)
 
 [![CI](https://github.com/yktsnd/sekimori/actions/workflows/ci.yml/badge.svg)](https://github.com/yktsnd/sekimori/actions/workflows/ci.yml)

@@ -1,3 +1,5 @@
+![sekimori — 招待トークンと予算上限で Anthropic/Bedrock の API キーを守る、fail-closed なセルフホスト型ゲートウェイのバナー画像](https://raw.githubusercontent.com/yktsnd/sekimori/main/.github/social-preview.jpg)
+
 # sekimori (関守)
 
 [![CI](https://github.com/yktsnd/sekimori/actions/workflows/ci.yml/badge.svg)](https://github.com/yktsnd/sekimori/actions/workflows/ci.yml)

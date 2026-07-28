@@ -48,10 +48,17 @@ It prevents a package upload from being mistaken for a trustworthy launch.
 - [x] Prepare `.github/social-preview.jpg` at GitHub's recommended 1280 x 640
   size and below its 1 MB upload limit. Re-verified 2026-07-28: 1280x640,
   ~117 kB.
-- [ ] Upload that image in GitHub repository Settings and verify the rendered
+- [x] Upload that image in GitHub repository Settings and verify the rendered
   preview. Do not claim a registry install, production deployment, performance
-  level, or user adoption that has not been verified. **Maintainer-only —
-  GitHub has no API for this; see the maintainer checklist below.**
+  level, or user adoption that has not been verified. Verified 2026-07-28:
+  fetching the public repository page returns `og:image` and `twitter:image`
+  meta tags pointing at `repository-images.githubusercontent.com/...`
+  (GitHub's uploaded-image host), not the default generated
+  `opengraph.githubassets.com` card — which is how a custom uploaded social
+  preview presents. Both READMEs now also show the banner via the absolute
+  `raw.githubusercontent.com/yktsnd/sekimori/main/.github/social-preview.jpg`
+  URL, verified `200`/`image/jpeg` with `curl -sSI`, so it also renders on the
+  npm package page where `.github/` is not shipped.
 - [x] Checked GitHub's community profile and the repository from a signed-out
   browser on 2026-07-28: `raw.githubusercontent.com/yktsnd/sekimori/main/…`
   returned `200` for README.md, LICENSE, CONTRIBUTING.md,
@@ -269,11 +276,15 @@ the new commit.
 ## MAINTAINER-ONLY — remaining work, in order
 
 Everything above this line that an agent could evidence or execute has been
-done. Everything below can **only** be done by the maintainer personally —
-either because it requires an authenticated human decision (2FA, account
-creation, clicking "approve") or because GitHub/npm expose no API for it. Do
-these in order; nothing later in the list unblocks until the item before it
-is done.
+done, including uploading `.github/social-preview.jpg` as the repository's
+social preview (verified 2026-07-28 — see the release gate above). Everything
+below can **only** be done by the maintainer personally — either because it
+requires an authenticated human decision (2FA, account creation, clicking
+"approve") or because GitHub/npm expose no API for it. What remains is the
+entire npm-publish sequence (steps 1–6) plus one forward-looking GitHub
+account setting (step 7) and the optional/deferrable items (step 8); the
+maintainer has not started any of the npm steps yet. Do these in order;
+nothing later in the list unblocks until the item before it is done.
 
 1. **Create an npm account with two-factor authentication enabled**, if the
    maintainer does not already have one. [npmjs.com/signup](https://www.npmjs.com/signup) →
@@ -303,17 +314,13 @@ is done.
    Trusted Publisher). **Then delete the `NPM_TOKEN` GitHub secret and
    revoke the granular token** from step 2 (npm Console → Access Tokens →
    Revoke). ~5 minutes.
-7. **Upload `.github/social-preview.jpg` in repository Settings** — GitHub
-   has no API for this, only the web UI. Repository → Settings → General →
-   Social preview → Upload an image, then reload the repository's public
-   page signed out to confirm it renders. ~2 minutes.
-8. **One GitHub account setting, forward-looking only:** enable "Keep my
+7. **One GitHub account setting, forward-looking only:** enable "Keep my
    email address private" in GitHub → Settings → Emails, so that any merge
    commits authored or created from this account going forward use the
    GitHub-generated noreply address automatically instead of a personal one.
    This is unrelated to the historical address rewrite already recorded
    above in this file — it only affects future commits. ~1 minute.
-9. **Optional / deferrable — do not block publish on these:**
+8. **Optional / deferrable — do not block publish on these:**
    - Test GitHub private vulnerability reporting end-to-end from a second,
      non-maintainer GitHub account (open a draft advisory, confirm the flow
      works, do not submit a real vulnerability).

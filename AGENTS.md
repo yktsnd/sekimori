@@ -294,10 +294,16 @@ After setup, tell your principal in plain language, for example:
    single most likely reason a deployed instance stays down after a crash
    (e.g. an OOM kill) — a `SIGKILL` leaves the lock behind and startup then
    refuses to boot with a `[sekimori] fatal error: ... file store is already
-   locked ...` message and exit code `1`. **`sekimori doctor` does not
-   currently detect this stale-lock state** (it reported `ok: true` in a
-   rehearsal against a known-stuck lock) — do not trust a passing `doctor`
-   alone to rule this out after a crash; follow the exact recovery procedure
-   in [docs/deploy.md](docs/deploy.md#crash-recovery-sigkill--oom-kill).
+   locked ...` message and exit code `1`. **`sekimori doctor` detects this
+   stale-lock state** (issue #27): its `store_writable` check inspects
+   `<store.path>.lock` without ever taking it, and fails with a detail naming
+   the lock path and the recovery procedure below when the lock's recorded
+   process is no longer alive — a lock held by a live process (the normal
+   case while sekimori is up) still reports `ok`. Still follow the exact
+   recovery procedure in
+   [docs/deploy.md](docs/deploy.md#crash-recovery-sigkill--oom-kill) rather
+   than deleting the lock on `doctor`'s say-so alone — `doctor` tells you
+   *that* recovery is needed, the procedure there tells you how to do it
+   safely.
 7. HTTPS is required for anything beyond localhost — terminate TLS in front
    (platform default or a reverse proxy).

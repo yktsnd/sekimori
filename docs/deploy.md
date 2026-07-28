@@ -202,25 +202,43 @@ so `<store.path>.lock` is left on disk with the dead process's PID inside it,
 and **sekimori deliberately refuses to start with a leftover lock** rather
 than silently risking a second writer against the same state file.
 
-### Gap found: `doctor` does not detect this
+### `doctor` detects this (issue #27)
 
-With the stale lock still present, `sekimori doctor sek.json --json` was run
-again and reported **`"ok": true`** with `store_writable: "ok"` — the same
-result as a clean install. `doctor` never takes the runtime lock (by design,
-so it never disturbs a live process's state), so it cannot currently
-distinguish "no process holds this store" from "a crashed process's stale
-lock is sitting here." **This means an operator or agent who runs `doctor`
-after an OOM kill gets a false all-clear while the server actually cannot
-boot.** This is reported to the maintainer/reviewer as a real gap rather than
-worked around here: closing it needs a small, deliberately scoped addition —
-a lock-state check that inspects `<store.path>.lock` (existence + whether its
-recorded PID is alive) without taking the lock itself, added as a new
-`doctor` check (or folded into `store_writable`) that keeps the existing
-stable check-name/`{ok, checks}` JSON contract and fails closed (a stale lock
-it cannot positively rule out should report `fail`, not `ok`). It is
-intentionally not implemented as part of this deployment-rehearsal change so
-the fix gets its own focused review and tests rather than being bundled into
-a docs change.
+An earlier rehearsal of this same scenario found that `sekimori doctor
+sek.json --json` reported `"ok": true` with `store_writable: "ok"` while the
+stale lock above was still present — a false all-clear while the server
+actually could not boot. That gap is now closed: `store_writable` inspects
+the adjacent `<store.path>.lock` (existence + whether its recorded pid is
+alive, via the same `process.kill(pid, 0)` check the codebase already uses
+elsewhere) **without ever taking the lock itself**, so it never disturbs a
+live process. Re-running the exact scenario above against the packaged
+tarball's `dist` confirms it:
+
+```bash
+sekimori doctor sek.json --json
+```
+
+```json
+{"ok":false,"checks":[
+  {"name":"config_file","status":"ok","detail":"found and readable: sek.json"},
+  {"name":"config_valid","status":"ok","detail":"parses as JSON and passes validateConfig"},
+  {"name":"upstream_key_env","status":"ok","detail":"ANTHROPIC_API_KEY is set"},
+  {"name":"admin_key_env","status":"ok","detail":"SEKIMORI_ADMIN_KEY is set"},
+  {"name":"store_writable","status":"fail","detail":"store file is valid and writable: /path/to/state/state.json; stale lock: /path/to/state/state.json.lock names a process that is no longer running. Startup will refuse to boot while this file exists (see docs/deploy.md#crash-recovery-sigkill--oom-kill: confirm no sekimori process still owns it, then remove only the .lock file - never the state file)."},
+  {"name":"logging","status":"ok","detail":"request/response body logging is disabled"}
+]}
+```
+
+Exit code `1`, matching the startup refusal above. The reverse case was also
+verified: running `doctor` **while sekimori is still up** (lock held by the
+live process) reports `store_writable: "ok"` and exit `0`, as it must — that
+is the normal, healthy state of a running instance, not a fault. A lock file
+that cannot be read or does not contain a usable pid is `warn`, not a false
+`ok` or `fail`, since liveness genuinely cannot be determined from it. The
+lock file's own contents (pid, nonce, timestamp) are never printed in either
+case — only its path, in both human and `--json` output. See
+[configuration.md](configuration.md#sekimori-doctor--installation-self-check)
+for the full check-table entry.
 
 ### Recovery procedure (exactly what was executed and verified)
 

@@ -101,7 +101,7 @@ non-interactive, needs no TTY, never starts the HTTP server, and never makes
 a network call — it only reads the config file, checks that the required
 environment variables are set (never prints their values), and probes
 whether the configured store location is writable without ever touching an
-existing state file.
+existing state file or taking its lock.
 
 ```bash
 # from a clone:
@@ -120,7 +120,7 @@ command. Each check reports a stable snake_case `name`, a `status` of
 | `config_valid` | It parses as JSON and passes `validateConfig` (env-var presence is checked separately below, so this does not itself require secrets to be set). |
 | `upstream_key_env` | The environment variable named by `upstream.apiKeyEnv` is non-empty visible ASCII (`0x21`–`0x7e`). |
 | `admin_key_env` | `SEKIMORI_ADMIN_KEY` is visible ASCII, at least 32 characters, and distinct from the upstream key. A present-but-too-weak value (too short, empty/whitespace-only, or non-visible-ASCII) is a `fail`, not a silent `ok` — the same rule startup enforces — with a `detail` naming the rule and a command to generate a strong key (`node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`); the value itself is never printed. |
-| `store_writable` | For `store.type: "file"`: an existing state file is valid for FileStore and its directory can write+rename an atomic snapshot; a missing state file's directory is probed without creating the state file. This check does not take the serve-time lifetime lock, so startup still refuses any existing lock (live or stale). For `"memory"`: always a `warn` — accounting resets on every restart. |
+| `store_writable` | For `store.type: "file"`: an existing state file is valid for FileStore and its directory can write+rename an atomic snapshot; a missing state file's directory is probed without creating the state file. It also inspects the adjacent `<store.path>.lock`, without ever taking it — startup still independently refuses to acquire any existing lock (live or stale), this check only reports what it observes. A lock naming a process that `process.kill(pid, 0)` shows is alive (or `EPERM`-alive, i.e. owned by another user) is normal — sekimori is currently running — and does not fail the check. A lock naming a process that is no longer running is exactly the stale-lock state startup refuses to boot on (issue #27): `fail`, with a detail naming the lock path and pointing at [the recovery procedure](deploy.md#crash-recovery-sigkill--oom-kill). A lock file that cannot be read, is not valid JSON, or has no usable `pid` field is `warn` — liveness is genuinely unknown, so it is reported as neither a false `ok` nor a false `fail`. The lock's contents (pid, nonce, timestamp) are never printed — only its path. For `"memory"`: always a `warn` — accounting resets on every restart. |
 | `logging` | `warn` if `logging.logBodies: true`, else `ok`. |
 
 If `config_file` or `config_valid` fails, every remaining check reports

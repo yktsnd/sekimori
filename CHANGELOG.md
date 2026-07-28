@@ -41,6 +41,23 @@ All notable changes to sekimori are documented here. The format follows
   failure detail (still never printing the value). `init` also now prints a
   labelled `WARNING:` after writing the file when an already-exported
   secret would be rejected at startup — the exit code stays `0`.
+- `sekimori doctor` no longer reports `ok: true` while a stale file-store
+  lock blocks startup (issue #27). A deployment rehearsal against the
+  packaged tarball established that after a `SIGKILL`, `<store.path>.lock`
+  survives with the dead process's pid, startup correctly refuses to boot
+  (`file store is already locked ...`, exit `1`), but `doctor --json`
+  against that same state reported `ok: true` with `store_writable: "ok"` —
+  `checkStoreWritable` never looked at the lock file. `store_writable` now
+  inspects the adjacent `<store.path>.lock`, without ever taking it: a lock
+  naming a process that is still alive (`process.kill(pid, 0)`, treating
+  `EPERM` as alive) is left as `ok` — that is the normal state while
+  sekimori is running — while a lock naming a process that is no longer
+  alive is `fail`, with a detail naming the lock path and pointing at the
+  recovery procedure in `docs/deploy.md`'s crash-recovery section. A lock
+  file that cannot be read, is not valid JSON, or has no usable `pid` field
+  is `warn`, since liveness is genuinely unknown in that case. The lock
+  file's contents (pid, nonce, timestamp) are never included in human or
+  `--json` output — only its path. Startup's own refusal is unchanged.
 
 ## [0.2.0] - 2026-07-18
 

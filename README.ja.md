@@ -245,6 +245,7 @@ code に埋め込んだりしない。browser app は fetch ベースの
 | コーディングエージェントとして運用する | [AGENTS.md](AGENTS.md) |
 | 設定する | [設定リファレンス](docs/configuration.md) |
 | API を呼ぶ・管理する | [API リファレンス](docs/api.md) |
+| デプロイする（実行済みの手順とクラッシュ復旧） | [デプロイガイド](docs/deploy.md) |
 | 保証、前提、障害時の動作を理解する | [セキュリティモデル](docs/security-model.md) |
 | 設計制約と拡張点を理解する | [設計](docs/design.md) |
 | 貢献する・質問する | [CONTRIBUTING.md](CONTRIBUTING.md) / [SUPPORT.md](SUPPORT.md) |

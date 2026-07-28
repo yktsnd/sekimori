@@ -5,7 +5,9 @@ prototype safely. This file is the operations manual written for you:
 deterministic commands, expected outputs, exit codes, and the rules you must
 not break. Human-oriented prose lives in [README.md](README.md); the full
 config/API references are [docs/configuration.md](docs/configuration.md) and
-[docs/api.md](docs/api.md).
+[docs/api.md](docs/api.md). For running an installed instance long-term —
+including the executed crash-recovery procedure after a hard kill — see
+[docs/deploy.md](docs/deploy.md).
 
 ## What sekimori is (and why your principal wants it)
 
@@ -288,6 +290,14 @@ After setup, tell your principal in plain language, for example:
    multiple replicas (limits would fragment, and file-store ownership is
    exclusive). If `<state>.lock` names a live process, stop that process rather
    than deleting the lock. After a confirmed hard crash, verify no process uses
-   the state path before removing the stale lock and restarting.
+   the state path before removing the stale lock and restarting. This is the
+   single most likely reason a deployed instance stays down after a crash
+   (e.g. an OOM kill) — a `SIGKILL` leaves the lock behind and startup then
+   refuses to boot with a `[sekimori] fatal error: ... file store is already
+   locked ...` message and exit code `1`. **`sekimori doctor` does not
+   currently detect this stale-lock state** (it reported `ok: true` in a
+   rehearsal against a known-stuck lock) — do not trust a passing `doctor`
+   alone to rule this out after a crash; follow the exact recovery procedure
+   in [docs/deploy.md](docs/deploy.md#crash-recovery-sigkill--oom-kill).
 7. HTTPS is required for anything beyond localhost — terminate TLS in front
    (platform default or a reverse proxy).

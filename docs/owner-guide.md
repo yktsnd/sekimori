@@ -176,6 +176,16 @@ layer.
 A. Tell your agent "stop it" and it stops the app at the hosting service.
 Revoking the API key at the issuer shuts off AI usage completely.
 
+**Q. The app crashed (e.g. the hosting platform ran out of memory) and now it
+won't come back, even though the platform tried to restart it.**
+A. This is expected, not a bug: sekimori deliberately refuses to restart on
+its own after that kind of crash, to protect your budget and usage data from
+being corrupted by two copies running at once. **If the app stops coming
+back after a crash, tell your agent to run the recovery steps in
+[docs/deploy.md](deploy.md#crash-recovery-sigkill--oom-kill)** — it is a
+short, one-time cleanup step and your invite tokens and usage history are
+not lost.
+
 **Q. Where are the technical details?**
 A. [README](../README.md) (developers) and [AGENTS.md](../AGENTS.md)
 (agents). You don't need to read them.

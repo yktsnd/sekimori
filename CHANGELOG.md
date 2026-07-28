@@ -6,6 +6,23 @@ All notable changes to sekimori are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `docs/deploy.md` (issue #25): a deployment guide written from an executed
+  rehearsal of the packaged tarball on real OS processes (no Docker in the
+  rehearsal environment) — install, non-interactive `init`, `doctor`, boot,
+  admin token issue, a `/v1/messages` round trip through the offline mock
+  upstream, `/v1/usage`, a tokenless 401 probe, graceful restart (SIGTERM),
+  and a hard kill (SIGKILL). The hard-kill rehearsal confirmed the exact
+  `file store is already locked` fatal-error message and exit code `1`
+  documented in `design.md`, found that `sekimori doctor` currently reports
+  `ok: true` against that same stuck lock (a real gap, reported to the
+  reviewer rather than silently reworked), and records the verified
+  three-step recovery procedure. Linked from both READMEs, AGENTS.md, and
+  RELEASING.md's deployment gate item; a plain-language pointer was added to
+  both owner guides. A hosted HTTPS deployment stays out of scope pending
+  the owner's hosting credentials (issue #9) and is explicitly marked
+  "not yet verified" in the new doc.
+
 ### Fixed
 - `sekimori init` no longer depends on ambient environment variables to
   decide whether its own generated config file is valid (release blocker).

@@ -69,6 +69,15 @@ It prevents a package upload from being mistaken for a trustworthy launch.
 - [ ] Execute a real HTTPS deployment using an approved hosting account and
   a tiny approved budget. Run the live checks in [AGENTS.md](AGENTS.md),
   measure the end-to-end path, and only then write deploy instructions.
+  [docs/deploy.md](docs/deploy.md) already documents an executed rehearsal
+  of the packaged tarball on real OS processes — install, non-interactive
+  `init`, `doctor`, boot, admin token issue, a `/v1/messages` round trip
+  through a mock upstream, graceful restart (SIGTERM), and hard-kill crash
+  recovery (SIGKILL) — which is everything that does not require a hosting
+  account. It deliberately does **not** satisfy this item: no hosted HTTPS
+  deployment has been executed against a real provider key. That remains
+  credential-gated on the maintainer and is tracked in
+  [issue #9](https://github.com/yktsnd/sekimori/issues/9).
 - [ ] Re-check provider pricing, billing controls, API-key guidance, and
   model access against their official documentation on release day.
 

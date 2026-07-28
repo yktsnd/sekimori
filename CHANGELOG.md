@@ -59,6 +59,21 @@ All notable changes to sekimori are documented here. The format follows
   file's contents (pid, nonce, timestamp) are never included in human or
   `--json` output — only its path. Startup's own refusal is unchanged.
 
+### Changed
+- `RELEASING.md` (issue #26): closed every release-gate item that does not
+  require maintainer credentials, with dated 2026-07-28 evidence — the
+  merged status of PR #18, README badges, community-health file routing,
+  issue-template routing, and a fresh re-check of Anthropic/Bedrock pricing,
+  billing, and credential guidance against official documentation (no stale
+  claims found; the shipped Haiku 4.5 reference prices already match current
+  official pricing). The private-vulnerability-reporting-from-a-second-account
+  and X-DM-liveness checks are now marked non-blocking/deferrable, with the
+  hosted-deployment item (issue #9) explicitly kept open. The gate ends with
+  an ordered, maintainer-only checklist (npm 2FA, `NPM_TOKEN`, running
+  `Publish npm`, npm 2FA approval, Trusted Publishing, `.github/social-preview.jpg`
+  upload, and a GitHub email-privacy setting) so publish only waits on steps
+  that genuinely need a human.
+
 ## [0.2.0] - 2026-07-18
 
 ### Changed — public-release hardening

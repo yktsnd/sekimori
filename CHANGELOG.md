@@ -73,9 +73,9 @@ All notable changes to sekimori are documented here. The format follows
   and X-DM-liveness checks are now marked non-blocking/deferrable, with the
   hosted-deployment item (issue #9) explicitly kept open. The gate ends with
   an ordered, maintainer-only checklist (npm 2FA, `NPM_TOKEN`, running
-  `Publish npm`, npm 2FA approval, Trusted Publishing, `.github/social-preview.jpg`
-  upload, and a GitHub email-privacy setting) so publish only waits on steps
-  that genuinely need a human.
+  `Publish npm`, npm 2FA approval, Trusted Publishing, and a GitHub
+  email-privacy setting) so publish only waits on steps that genuinely need a
+  human.
 
 ## [0.2.0] - 2026-07-18
 

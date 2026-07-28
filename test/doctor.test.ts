@@ -214,6 +214,58 @@ test("doctor: missing admin key env var - admin_key_env fails", (t) => {
   assert.equal(result.ok, false);
 });
 
+// A present-but-too-weak SEKIMORI_ADMIN_KEY (release blocker: init.ts's
+// validateGeneratedConfig used to reject config generation itself because
+// of this, misreporting it as an internal bug - see CHANGELOG.md). doctor
+// must fail closed on it, never silently report "ok", and never print the
+// value.
+test("doctor: present-but-too-short admin key env var - admin_key_env fails (not a silent ok), exit 1, value never printed", (t) => {
+  t.after(resetEnv);
+  const dir = tmpDir("sekimori-doctor-weakadmin-");
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  process.env[TEST_KEY_ENV] = "sk-test-value";
+  process.env.SEKIMORI_ADMIN_KEY = "dummy-admin"; // 11 chars, well under the 32-char minimum
+
+  const configPath = writeConfig(dir, { store: { type: "file", path: join(dir, "state.json") } });
+  const result = runDoctorChecks(configPath);
+
+  const byName = new Map(result.checks.map((c) => [c.name, c]));
+  assert.equal(byName.get("admin_key_env")?.status, "fail");
+  const detail = byName.get("admin_key_env")?.detail ?? "";
+  assert.match(detail, /32/); // names the rule
+  assert.match(detail, /randomBytes/); // names the generation command
+  assert.ok(!detail.includes("dummy-admin"));
+  assert.equal(result.ok, false);
+
+  const { stream: jsonStream, text: jsonText } = capturingOutput();
+  const jsonExitCode = runDoctor([configPath, "--json"], { output: jsonStream });
+  assert.equal(jsonExitCode, 1);
+  assert.ok(!jsonText().includes("dummy-admin"));
+
+  const { stream: humanStream, text: humanText } = capturingOutput();
+  const humanExitCode = runDoctor([configPath], { output: humanStream });
+  assert.equal(humanExitCode, 1);
+  assert.match(humanText(), /FAIL\s+admin_key_env/);
+  assert.ok(!humanText().includes("dummy-admin"));
+});
+
+test("doctor: empty-string / whitespace-only admin key env var also fails admin_key_env", (t) => {
+  t.after(resetEnv);
+  const dir = tmpDir("sekimori-doctor-blankadmin-");
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  process.env[TEST_KEY_ENV] = "sk-test-value";
+
+  const configPath = writeConfig(dir, { store: { type: "file", path: join(dir, "state.json") } });
+
+  for (const value of ["", "   "]) {
+    process.env.SEKIMORI_ADMIN_KEY = value;
+    const result = runDoctorChecks(configPath);
+    const byName = new Map(result.checks.map((c) => [c.name, c]));
+    assert.equal(byName.get("admin_key_env")?.status, "fail", JSON.stringify(value));
+    assert.equal(result.ok, false, JSON.stringify(value));
+  }
+});
+
 // ---------------------------------------------------------------------------
 // store_writable / logging - warn cases (still ok:true)
 // ---------------------------------------------------------------------------

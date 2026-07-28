@@ -113,15 +113,34 @@ function checkUpstreamKeyEnv(config: SekimoriConfig): DoctorCheck {
   };
 }
 
+/** Command suggested in every "generate a strong admin key" message across
+ * init.ts and doctor.ts - kept in one place so the two stay consistent. */
+const GENERATE_ADMIN_KEY_COMMAND = "node -e \"console.log(require('crypto').randomBytes(32).toString('base64url'))\"";
+
+/** A present-but-too-weak SEKIMORI_ADMIN_KEY (too short, empty/whitespace,
+ * or containing non-visible-ASCII characters) must be a `fail`, not a
+ * silent `ok` - it will be refused at startup just the same as a missing
+ * one (config.ts's validateConfig). The value itself is never inspected in
+ * the output, only its length/shape. */
 function checkAdminKeyEnv(): DoctorCheck {
   const value = process.env.SEKIMORI_ADMIN_KEY;
   if (value !== undefined && value.length >= 32 && /^[\x21-\x7e]+$/.test(value)) {
     return { name: "admin_key_env", status: "ok", detail: "SEKIMORI_ADMIN_KEY is set" };
   }
+  const reason =
+    value === undefined
+      ? "is not set"
+      : value.trim().length === 0
+        ? "is set but empty or whitespace-only"
+        : !/^[\x21-\x7e]+$/.test(value)
+          ? "is set but contains non-visible-ASCII characters"
+          : `is set but only ${value.length} character${value.length === 1 ? "" : "s"} long`;
   return {
     name: "admin_key_env",
     status: "fail",
-    detail: "environment variable SEKIMORI_ADMIN_KEY must be set to at least 32 visible ASCII characters",
+    detail:
+      `environment variable SEKIMORI_ADMIN_KEY ${reason} - it must be at least 32 visible ASCII characters. ` +
+      `Generate a strong one with: ${GENERATE_ADMIN_KEY_COMMAND}`,
   };
 }
 

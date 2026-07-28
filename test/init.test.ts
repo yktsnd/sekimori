@@ -331,6 +331,189 @@ test("init: --yes does not require ANTHROPIC_API_KEY / SEKIMORI_ADMIN_KEY to be 
   assert.equal(process.env.SEKIMORI_ADMIN_KEY, undefined);
 });
 
+// ---------------------------------------------------------------------------
+// runInit: generation must be independent of exported secrets (v0.2.0
+// release blocker). A weak-but-exported SEKIMORI_ADMIN_KEY used to make
+// validateGeneratedConfig validate against the operator's *real* (weak)
+// value instead of a placeholder, so init refused to write a file at all and
+// misreported it as an internal bug. See CHANGELOG.md.
+// ---------------------------------------------------------------------------
+
+/** Runs `runInit --yes` with a given set of env var overrides applied only
+ * for the duration of the call (restored exactly afterwards, including
+ * deletion if the var was unset before), and returns the exit code, any
+ * output, and the file contents written (empty string if nothing was
+ * written). */
+async function runInitWithEnv(
+  cfgDir: string,
+  extraArgs: string[],
+  env: Record<string, string | undefined>,
+): Promise<{ exitCode: number; contents: string; output: string }> {
+  const cfgPath = join(cfgDir, "sekimori.config.json");
+  const saved = new Map<string, string | undefined>();
+  for (const [name, value] of Object.entries(env)) {
+    saved.set(name, process.env[name]);
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  }
+  try {
+    const captured = capturingOutput();
+    const exitCode = await runInit([cfgPath, "--yes", ...extraArgs], silentIO({ output: captured.stream }));
+    const contents = existsSync(cfgPath) ? readFileSync(cfgPath, "utf8") : "";
+    return { exitCode, contents, output: captured.text() };
+  } finally {
+    for (const [name, value] of saved) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+}
+
+for (const [label, badAdminKey] of [
+  ["too short", "dummy-admin"],
+  ["an empty string", ""],
+  ["whitespace-only", "   "],
+] as const) {
+  test(`init: --yes writes a byte-identical config whether SEKIMORI_ADMIN_KEY is absent or ${label}`, async (t) => {
+    const dirAbsent = tmpDir("sekimori-init-admin-absent-");
+    const dirWeak = tmpDir("sekimori-init-admin-weak-");
+    t.after(() => {
+      rmSync(dirAbsent, { recursive: true, force: true });
+      rmSync(dirWeak, { recursive: true, force: true });
+    });
+
+    const baseline = await runInitWithEnv(dirAbsent, [], {
+      ANTHROPIC_API_KEY: undefined,
+      SEKIMORI_ADMIN_KEY: undefined,
+    });
+    assert.equal(baseline.exitCode, 0, baseline.output);
+    assert.ok(baseline.contents.length > 0);
+
+    const withWeakKey = await runInitWithEnv(dirWeak, [], {
+      ANTHROPIC_API_KEY: undefined,
+      SEKIMORI_ADMIN_KEY: badAdminKey,
+    });
+    assert.equal(withWeakKey.exitCode, 0, withWeakKey.output);
+    assert.equal(withWeakKey.contents, baseline.contents);
+  });
+}
+
+for (const [upstreamType, apiKeyEnvName] of [
+  ["anthropic", "ANTHROPIC_API_KEY"],
+  ["bedrock", "AWS_BEARER_TOKEN_BEDROCK"],
+] as const) {
+  for (const [label, badApiKey] of [
+    ["an empty string", ""],
+    ["whitespace-only", "   "],
+  ] as const) {
+    test(
+      `init: --yes --upstream-type ${upstreamType} writes a byte-identical config whether ${apiKeyEnvName} is absent or ${label}`,
+      async (t) => {
+        const dirAbsent = tmpDir("sekimori-init-upstreamkey-absent-");
+        const dirWeak = tmpDir("sekimori-init-upstreamkey-weak-");
+        t.after(() => {
+          rmSync(dirAbsent, { recursive: true, force: true });
+          rmSync(dirWeak, { recursive: true, force: true });
+        });
+        const extraArgs = ["--upstream-type", upstreamType];
+
+        const baseline = await runInitWithEnv(dirAbsent, extraArgs, {
+          [apiKeyEnvName]: undefined,
+          SEKIMORI_ADMIN_KEY: undefined,
+        });
+        assert.equal(baseline.exitCode, 0, baseline.output);
+        assert.ok(baseline.contents.length > 0);
+
+        const withWeakKey = await runInitWithEnv(dirWeak, extraArgs, {
+          [apiKeyEnvName]: badApiKey,
+          SEKIMORI_ADMIN_KEY: undefined,
+        });
+        assert.equal(withWeakKey.exitCode, 0, withWeakKey.output);
+        assert.equal(withWeakKey.contents, baseline.contents);
+      },
+    );
+  }
+}
+
+test("init: real-world reproduction - a weak-but-exported SEKIMORI_ADMIN_KEY no longer blocks config generation", async (t) => {
+  const dir = tmpDir("sekimori-init-repro-");
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+
+  const result = await runInitWithEnv(dir, [], {
+    ANTHROPIC_API_KEY: "dummy-key",
+    SEKIMORI_ADMIN_KEY: "dummy-admin",
+  });
+  assert.equal(result.exitCode, 0, result.output);
+  assert.doesNotMatch(result.output, /This is a bug in sekimori init/);
+  assert.ok(result.contents.length > 0);
+});
+
+// ---------------------------------------------------------------------------
+// runInit: post-write warning about already-exported secrets that would be
+// refused at startup (init stays helpful even though generation no longer
+// depends on them)
+// ---------------------------------------------------------------------------
+
+test("init: warns (but still exits 0) when the exported SEKIMORI_ADMIN_KEY would be rejected at startup", async (t) => {
+  const dir = tmpDir("sekimori-init-warn-weakadmin-");
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+
+  const result = await runInitWithEnv(dir, [], {
+    ANTHROPIC_API_KEY: undefined,
+    SEKIMORI_ADMIN_KEY: "dummy-admin",
+  });
+  assert.equal(result.exitCode, 0, result.output);
+  assert.match(result.output, /WARNING:.*SEKIMORI_ADMIN_KEY.*only 11 character/);
+});
+
+test("init: warns when the exported upstream API key is empty/whitespace-only", async (t) => {
+  const dir = tmpDir("sekimori-init-warn-weakupstream-");
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+
+  const result = await runInitWithEnv(dir, [], {
+    ANTHROPIC_API_KEY: "   ",
+    SEKIMORI_ADMIN_KEY: undefined,
+  });
+  assert.equal(result.exitCode, 0, result.output);
+  assert.match(result.output, /WARNING:.*ANTHROPIC_API_KEY.*empty or whitespace-only/);
+});
+
+test("init: warns when the exported upstream key and admin key are identical", async (t) => {
+  const dir = tmpDir("sekimori-init-warn-samevalue-");
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+
+  const shared = "same-value-for-both-secrets-32-bytes-min";
+  const result = await runInitWithEnv(dir, [], {
+    ANTHROPIC_API_KEY: shared,
+    SEKIMORI_ADMIN_KEY: shared,
+  });
+  assert.equal(result.exitCode, 0, result.output);
+  assert.match(result.output, /WARNING:.*ANTHROPIC_API_KEY and SEKIMORI_ADMIN_KEY.*same value/);
+});
+
+test("init: no warning is printed when exported secrets are absent or already strong", async (t) => {
+  const dirAbsent = tmpDir("sekimori-init-nowarn-absent-");
+  const dirStrong = tmpDir("sekimori-init-nowarn-strong-");
+  t.after(() => {
+    rmSync(dirAbsent, { recursive: true, force: true });
+    rmSync(dirStrong, { recursive: true, force: true });
+  });
+
+  const absent = await runInitWithEnv(dirAbsent, [], {
+    ANTHROPIC_API_KEY: undefined,
+    SEKIMORI_ADMIN_KEY: undefined,
+  });
+  assert.equal(absent.exitCode, 0, absent.output);
+  assert.doesNotMatch(absent.output, /WARNING:/);
+
+  const strong = await runInitWithEnv(dirStrong, [], {
+    ANTHROPIC_API_KEY: "sk-ant-real-looking-key",
+    SEKIMORI_ADMIN_KEY: "admin-strong-key-32-bytes-minimum-00001",
+  });
+  assert.equal(strong.exitCode, 0, strong.output);
+  assert.doesNotMatch(strong.output, /WARNING:/);
+});
+
 test("init: refuses to overwrite an existing file without --force", async (t) => {
   const dir = tmpDir("sekimori-init-noforce-");
   t.after(() => rmSync(dir, { recursive: true, force: true }));

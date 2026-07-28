@@ -6,6 +6,25 @@ All notable changes to sekimori are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- `sekimori init` no longer depends on ambient environment variables to
+  decide whether its own generated config file is valid (release blocker).
+  Previously, pre-write validation substituted a placeholder secret only
+  when the upstream API key env var or `SEKIMORI_ADMIN_KEY` were *absent*;
+  if either was already exported — even to a weak, empty, or
+  whitespace-only value, as AGENTS.md and `init`'s own "next steps" both
+  instruct operators to do before starting sekimori — `init` validated
+  against that real value instead, failed, and misreported the failure as
+  "a bug in sekimori init - please report it," writing nothing. Generation
+  now always validates against strong placeholder values regardless of what
+  is exported, so the written file is byte-identical whether or not those
+  variables are set. Startup and `sekimori doctor` are unchanged and still
+  fail closed on a missing or weak secret; `doctor`'s `admin_key_env` check
+  now names the 32-character rule and the key-generation command in its
+  failure detail (still never printing the value). `init` also now prints a
+  labelled `WARNING:` after writing the file when an already-exported
+  secret would be rejected at startup — the exit code stays `0`.
+
 ## [0.2.0] - 2026-07-18
 
 ### Changed — public-release hardening

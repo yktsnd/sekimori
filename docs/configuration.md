@@ -33,11 +33,20 @@ origins (comma-separated, empty = none), and a pinned system prompt (empty =
 Every answer is validated as you type (invalid numbers, empty model lists,
 etc. re-prompt); before writing, the generated config is run through the
 same validation startup uses, so `sekimori init` rejects structurally invalid
-output. Startup can still refuse invalid/missing secret
-environment variables or unavailable storage. `init` does **not** require
-`ANTHROPIC_API_KEY` or `SEKIMORI_ADMIN_KEY` to already be set — those are
-exported later, right before starting sekimori (see the printed "next
-steps").
+output. That pre-write validation **always substitutes placeholder secret
+values** for the upstream API key env var and `SEKIMORI_ADMIN_KEY` — it never
+reads or judges whatever those variables actually hold. Whether `init`
+successfully writes a config file therefore never depends on what happens to
+be exported in your shell: `init` does **not** require `ANTHROPIC_API_KEY` /
+`AWS_BEARER_TOKEN_BEDROCK` or `SEKIMORI_ADMIN_KEY` to already be set, and it
+does not matter if one of them is already set but empty, whitespace-only, or
+(for `SEKIMORI_ADMIN_KEY`) shorter than the 32-character minimum — the
+config file `init` writes is identical either way. Startup and `sekimori
+doctor` are what judge your *real* secrets (see below); if you already have
+one exported and it would be rejected at startup, `init` prints a labelled
+`WARNING:` after writing the file (exit code stays `0`) telling you so and
+how to fix it. Secrets are exported later, right before starting sekimori
+(see the printed "next steps").
 
 Every setting can also be pre-answered with a flag (issue #13) — `--port`,
 `--listen-host`, `--upstream-url`, `--upstream-timeout-ms`, `--model`,
@@ -110,7 +119,7 @@ command. Each check reports a stable snake_case `name`, a `status` of
 | `config_file` | The config file exists and is readable. |
 | `config_valid` | It parses as JSON and passes `validateConfig` (env-var presence is checked separately below, so this does not itself require secrets to be set). |
 | `upstream_key_env` | The environment variable named by `upstream.apiKeyEnv` is non-empty visible ASCII (`0x21`–`0x7e`). |
-| `admin_key_env` | `SEKIMORI_ADMIN_KEY` is visible ASCII, at least 32 characters, and distinct from the upstream key. |
+| `admin_key_env` | `SEKIMORI_ADMIN_KEY` is visible ASCII, at least 32 characters, and distinct from the upstream key. A present-but-too-weak value (too short, empty/whitespace-only, or non-visible-ASCII) is a `fail`, not a silent `ok` — the same rule startup enforces — with a `detail` naming the rule and a command to generate a strong key (`node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`); the value itself is never printed. |
 | `store_writable` | For `store.type: "file"`: an existing state file is valid for FileStore and its directory can write+rename an atomic snapshot; a missing state file's directory is probed without creating the state file. This check does not take the serve-time lifetime lock, so startup still refuses any existing lock (live or stale). For `"memory"`: always a `warn` — accounting resets on every restart. |
 | `logging` | `warn` if `logging.logBodies: true`, else `ok`. |
 

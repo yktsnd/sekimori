@@ -79,7 +79,12 @@ accepts.
 
 1. **`init` (non-interactive)** — writes defaults; refuse-to-overwrite
    without `--force`; requires `--yes` when stdin is not a TTY (it will
-   never hang your pipe):
+   never hang your pipe). Order relative to "Required environment
+   variables" above does not matter: `init` never reads or judges whatever
+   `ANTHROPIC_API_KEY` / `AWS_BEARER_TOKEN_BEDROCK` / `SEKIMORI_ADMIN_KEY`
+   already hold (even a weak or placeholder value exported first is fine —
+   the generated file is identical either way), so it is safe to export
+   them before or after running `init`:
 
    ```bash
    npx tsx src/main.ts init --yes [path]   # exit 0, writes path (default ./sekimori.config.json)

@@ -7,6 +7,9 @@ All notable changes to sekimori are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- The project's social-preview banner now appears at the top of both READMEs,
+  linked via the absolute `raw.githubusercontent.com` URL so it also renders
+  on the npm package page (`.github/` is not shipped in the package).
 - `docs/deploy.md` (issue #25): a deployment guide written from an executed
   rehearsal of the packaged tarball on real OS processes (no Docker in the
   rehearsal environment) — install, non-interactive `init`, `doctor`, boot,
